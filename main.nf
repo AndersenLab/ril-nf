@@ -1,39 +1,19 @@
 #!/usr/bin/env nextflow
 
-println params.fastq_path
-fastqs = Channel.fromPath(params.fastq_path)
+params.directory = "$PWD"
+println "Running Fastq Profiler on " + params.directory
 
-process sketch_files {
+fastqs = Channel.fromPath( params.directory + '*.fastq.gz' )
+
+process profile_fastqs {
 
     input:
-    file query from fastqs
-
-    output:
-    file "${query}.msh" into sketches
+    file 'query' from fastqs
 
     """
-    mash sketch -m 2G -k 31 -s 400 ${query}
+    fq profile --fastqc ${query} 
     """
 }
-
-process combine_sketch_files {
-    
-    input:
-    file sketch from sketches.toList()
-
-    output:
-    file "output.msh" into output
-
-    publishDir "."
-
-    """
-    mash paste output ${sketch}
-    """
-}
-
-
-sketches.subscribe { print "Received: $it" }
-
 
 workflow.onComplete {
     println "Pipeline completed at: $workflow.complete"

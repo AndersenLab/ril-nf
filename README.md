@@ -1,4 +1,3 @@
-# denovo-concordance
-De novo concordance pipeline using minihash
+# fq-profile-nf
 
-Modify nextflow.config or add to ~/.nextflow/config to setup.
+Perform Fastq-Profiling in the current working directory.

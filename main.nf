@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-params.directory = "$PWD"
+params.directory = "$PWD/"
 println "Running Fastq Profiler on " + params.directory
 
 fastqs = Channel.fromPath( params.directory + '*.fastq.gz' )

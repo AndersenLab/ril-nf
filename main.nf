@@ -44,8 +44,8 @@ process copy_fq_files {
     executor 'local'
 
     """
-    cp ${params.directory}/.description ${params.out}/.description
-    cp ${params.directory}/.fqdata ${params.out}/.fqdata
+    cp ${params.directory}.description ${params.out}.description
+    cp ${params.directory}.fqdata ${params.out}.fqdata
     """
 
 }

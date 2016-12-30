@@ -6,7 +6,7 @@ println params.out
 params.threads = 8
 println "Running Trimmomatic on " + params.directory
 println params.directory + '*_R{1,2}_.*.fastq.gz'
-Channel.fromFilePairs(params.directory + 'EA2_NIC277*_R{1,2}_001.fastq.gz', flat: true)
+Channel.fromFilePairs(params.directory + '*_R{1,2}_001.fastq.gz', flat: true)
         .into { trimmomatic_read_pairs }
 
 
@@ -21,7 +21,7 @@ process make_out_dir {
 
 process trim {
 
-    publishDir params.out, mode: 'copy'
+    publishDir params.out, mode: 'move'
 
     cpus 8
 
@@ -55,7 +55,7 @@ process perform_fq_profile {
         set f1, f2 from trim_output
 
     """
-    fq profile ${f1} ${f2}
+    fq profile ${params.out}\$(basename ${f1}) ${params.out}/\$(basename ${f2})
     """
 }
 

@@ -6,5 +6,5 @@ Perform Fastq-Profiling in the current working directory.
 
 ```
 # cd to directory of fastqs
-nextflow run Andersenlab/trimmomatic-nf
+nextflow run Andersenlab/concordance-nf
 ```

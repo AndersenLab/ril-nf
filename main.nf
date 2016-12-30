@@ -12,7 +12,7 @@ Channel.fromFilePairs(params.directory + 'EA2_NIC277*_R{1,2}_001.fastq.gz', flat
 
 process make_out_dir {
     
-    executor local 
+    executor 'local'
 
     """
     mkdir -p ${params.out}
@@ -41,7 +41,7 @@ process trim {
 
 process copy_fq_files {
 
-    executor local 
+    executor 'local'
 
     """
     cp ${params.directory}/.description ${params.out}/.description
@@ -58,3 +58,4 @@ process perform_fq_profile {
     fq profile ${f1} ${f2}
     """
 }
+

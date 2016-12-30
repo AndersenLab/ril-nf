@@ -55,7 +55,7 @@ process perform_fq_profile {
         set f1, f2 from trim_output
 
     """
-    fq profile ${params.out}\$(basename ${f1}) ${params.out}/\$(basename ${f2})
+    fq profile --fastqc ${params.out}\$(basename ${f1}) ${params.out}/\$(basename ${f2})
     """
 }
 

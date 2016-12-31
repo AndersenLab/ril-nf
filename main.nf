@@ -22,6 +22,7 @@ process sketch_files {
     """
     zcat ${fq1} ${fq2} > ${dataset_id}.fq.gz
     mash sketch -r -p 16 -m 2 -k 31 -s 10000 -o ${dataset_id} ${dataset_id}.fq.gz
+    rm ${dataset_id}.fq.gz
     """
 }
 
@@ -32,11 +33,13 @@ process combine_sketch_files {
 
     output:
     file "output.msh" into output
+    file "concordance.tsv"
 
     publishDir "/projects/b1059/analysis/WI_concordance/sketches/fq", mode: 'copy'
 
     """
     mash paste output ${sketch}
+    mash dist output.msh output.msh > concordance.tsv
     """
 }
 

@@ -1,61 +1,48 @@
 #!/usr/bin/env nextflow
 
-params.directory = "$PWD/"
-params.out = params.directory.replace("raw", "processed")
-println params.out
+params.directory = '/projects/b1059/data/fastq/WI/dna/processed/**/'
+params.analysis_dir = "/projects/b1059/analysis/WI_concordance"
 params.threads = 8
-println "Running Trimmomatic on " + params.directory
-println params.directory + '*_R{1,2}_.*.fastq.gz'
-Channel.fromFilePairs(params.directory + '*_R{1,2}_001.fastq.gz', flat: true)
-        .into { trimmomatic_read_pairs }
+
+println "Running Concordance on " + params.directory
+
+Channel.fromFilePairs(params.directory + '*_{1,2}P.fq.gz', flat: true)
+        .into { fq_pairs }
 
 
-process make_out_dir {
-    
-    executor 'local'
+process sketch_files {
+
+    cpus 16
+
+    input:
+        set dataset_id, file(fq1), file(fq2) from fq_pairs
+    output:
+        set file("${dataset_id}.msh") into sketches
 
     """
-    mkdir -p ${params.out}
+    zcat ${fq1} ${fq2} > ${dataset_id}.fq.gz
+    mash sketch -r -p 16 -m 2 -k 31 -s 10000 -o ${dataset_id} ${dataset_id}.fq.gz
     """
 }
 
-process trim {
-
-    publishDir params.out, mode: 'move'
-
-    cpus 8
+process combine_sketch_files {
 
     input:
-        set dataset_id, file(forward), file(reverse) from trimmomatic_read_pairs
+    file sketch from sketches.toList()
 
     output:
-        set file("${dataset_id}_1P.fq.gz"), file("${dataset_id}_2P.fq.gz") into trim_output
+    file "output.msh" into output
+
+    publishDir "/projects/b1059/analysis/WI_concordance/sketches/fq", mode: 'copy'
 
     """
-    trimmomatic PE -threads ${params.threads} $forward $reverse -baseout ${dataset_id}.fq.gz ILLUMINACLIP:/home/dec211/.linuxbrew/share/trimmomatic/adapters/NexteraPE-PE.fa:2:80:10 MINLEN:45
-    rm ${dataset_id}_1U.fq.gz
-    rm ${dataset_id}_2U.fq.gz
+    mash paste output ${sketch}
     """
-
 }
 
-process copy_fq_files {
 
-    executor 'local'
-
-    """
-    cp ${params.directory}.description ${params.out}.description
-    cp ${params.directory}.fqdata ${params.out}.fqdata
-    """
-
-}
-
-process perform_fq_profile {
-    input:
-        set f1, f2 from trim_output
-
-    """
-    fq profile --fastqc ${params.out}\$(basename ${f1}) ${params.out}/\$(basename ${f2})
-    """
+workflow.onComplete {
+    println "Pipeline completed at: $workflow.complete"
+    println "Execution status: ${ workflow.success ? 'OK' : 'failed' }"
 }
 

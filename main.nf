@@ -21,7 +21,7 @@ process sketch_files {
 
     """
     zcat ${fq1} ${fq2} > ${dataset_id}.fq.gz
-    mash sketch -r -p 16 -m 2 -k 31 -s 10000 -o ${dataset_id} ${dataset_id}.fq.gz
+    mash sketch -r -p 16 -m 2 -k 21 -s 20000 -o ${dataset_id} ${dataset_id}.fq.gz
     rm ${dataset_id}.fq.gz
     """
 }

@@ -18,22 +18,32 @@ Channel.fromFilePairs(params.directory + '*{1,2}P.fq.gz', flat: true)
 
 // Construct strain and isotype lists
 import groovy.json.JsonSlurper
-def strain_keys = []
-def strain_values = []
-def isotype_keys = []
-def isotype_values = []
+def strain_set = []
+def isotype_set = []
 
 // Strain
 def strainFile = new File('strain_set.json')
 def strainJSON = new JsonSlurper().parseText(strainFile.text)
-strainJSON.each{ key, value -> strain_keys << key; }
-strainJSON.each{ key, value -> strain_values << value; }
+
+strainJSON.each { k, v -> for (i in v) {
+    strain_set << [k, i]
+    }
+}
 
 // Isotype
 def isoFile = new File('isotype_set.json')
 def isoJSON = new JsonSlurper().parseText(isoFile.text)
-isoJSON.each{ key, value -> isotype_keys << key; }
-isoJSON.each{ key, value -> isotype_values << value; }
+
+isoJSON.each { k, v -> for (i in v) {
+    isotype_set << [k, i]
+    }
+}
+
+strain_ch = Channel.from(strain_set)
+       .groupTuple()
+
+isotype_ch = Channel.from(isotype_set)
+       .groupTuple()
 
 
 /*
@@ -46,7 +56,7 @@ process sketch_fq_files {
     input:
         set dataset_id, file(fq1), file(fq2) from fq_pairs
     output:
-        set file("${dataset_id}.msh") into sketches
+        file("${dataset_id}.msh") into sketches
 
     """
     zcat ${fq1} ${fq2} | pigz > ${dataset_id}.fq.gz
@@ -76,19 +86,18 @@ process combine_fq_sketch_files {
     Strain Concordance
 */
 process sketch_strain_files {
-
+    echo true
     cpus 16
 
     input:
-        val key from strain_keys
-        file strain_set from strain_values
+        set seq_id, fq from strain_ch
     output:
-        set file("${key}.msh") into strain_sketches
+        file("${seq_id}.msh") into strain_sketches
 
     """
-    zcat ${strain_set} | pigz > ${key}.fq.gz
-    mash sketch -r -p 16 -m 2 -k ${params.kmer_size} -s ${params.sketches} -o ${key} ${key}.fq.gz
-    rm ${key}.fq.gz
+    zcat ${fq.join(" ")} | pigz > ${seq_id}.fq.gz
+    mash sketch -r -p 16 -m 2 -k ${params.kmer_size} -s ${params.sketches} -o ${seq_id} ${seq_id}.fq.gz
+    rm ${seq_id}.fq.gz
     """
 }
 
@@ -118,15 +127,14 @@ process sketch_isotype_files {
     cpus 16
 
     input:
-        val key from isotype_keys
-        file strain_set from isotype_values
+        set seq_id, fq from isotype_ch
     output:
-        set file("${key}.msh") into isotype_sketches
+        file("${seq_id}.msh") into isotype_sketches
 
     """
-    zcat ${strain_set} | pigz > ${key}.fq.gz
-    mash sketch -r -p 16 -m 2 -k ${params.kmer_size} -s ${params.sketches} -o ${key} ${key}.fq.gz
-    rm ${key}.fq.gz
+    zcat ${fq.join(" ")} | pigz > ${seq_id}.fq.gz
+    mash sketch -r -p 16 -m 2 -k ${params.kmer_size} -s ${params.sketches} -o ${seq_id} ${seq_id}.fq.gz
+    rm ${seq_id}.fq.gz
     """
 }
 

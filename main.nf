@@ -2,9 +2,11 @@
 
 params.directory = '/projects/b1059/data/fastq/WI/dna/processed/**/'
 params.analysis_dir = "/projects/b1059/analysis/WI_concordance"
-
-
+params.kmer_size = 21
+params.sketches = 20000
+out_tsv = "out_k${params.kmer_size}_s${params.sketches}.tsv"
 println "Running Concordance on " + params.directory
+println "Final Output will be ${out_tsv}"
 
 Channel.fromFilePairs(params.directory + '*{1,2}P.fq.gz', flat: true)
         .into { fq_pairs }
@@ -21,7 +23,7 @@ process sketch_files {
 
     """
     zcat ${fq1} ${fq2} > ${dataset_id}.fq.gz
-    mash sketch -r -p 16 -m 2 -k 21 -s 20000 -o ${dataset_id} ${dataset_id}.fq.gz
+    mash sketch -r -p 16 -m 2 -k ${params.kmer_size} -s ${params.sketches} -o ${dataset_id} ${dataset_id}.fq.gz
     rm ${dataset_id}.fq.gz
     """
 }
@@ -33,13 +35,13 @@ process combine_sketch_files {
 
     output:
     file "output.msh" into output
-    file "concordance.tsv"
+    file "${out_tsv}"
 
     publishDir "/projects/b1059/analysis/WI_concordance/sketches/fq", mode: 'copy'
 
     """
     mash paste output ${sketch}
-    mash dist output.msh output.msh > concordance.tsv
+    mash dist output.msh output.msh > ${out_tsv}
     """
 }
 

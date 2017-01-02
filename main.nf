@@ -2,11 +2,11 @@
 
 params.directory = '/projects/b1059/data/fastq/WI/dna/processed/**/'
 params.analysis_dir = "/projects/b1059/analysis/WI_concordance"
-params.threads = 8
+
 
 println "Running Concordance on " + params.directory
 
-Channel.fromFilePairs(params.directory + '*_{1,2}P.fq.gz', flat: true)
+Channel.fromFilePairs(params.directory + '*{1,2}P.fq.gz', flat: true)
         .into { fq_pairs }
 
 

@@ -61,8 +61,8 @@ process combine_fq_sketch_files {
     file sketch from sketches.toList()
 
     output:
-    file "output.msh" into output
-    file "${out_tsv}"
+    file "output.msh" into fq_output
+    file "${out_fq_tsv}"
 
     publishDir "/projects/b1059/analysis/WI_concordance/fq", mode: 'copy'
 
@@ -98,7 +98,7 @@ process combine_strain_files {
     file sketch from strain_sketches.toList()
 
     output:
-    file "output.msh" into output
+    file "output.msh" into sketch_output
     file "${out_strain_tsv}"
 
     publishDir "/projects/b1059/analysis/WI_concordance/strain", mode: 'copy'
@@ -136,8 +136,8 @@ process combine_isotype_files {
     file sketch from isotype_sketches.toList()
 
     output:
-    file "output.msh" into output
-    file "${out_strain_tsv}"
+    file "output.msh" into isotype_output
+    file "${out_isotype_tsv}"
 
     publishDir "/projects/b1059/analysis/WI_concordance/isotype", mode: 'copy'
 

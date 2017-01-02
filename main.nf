@@ -2,7 +2,7 @@
 
 params.directory = '/projects/b1059/data/fastq/WI/dna/processed/**/'
 params.analysis_dir = "/projects/b1059/analysis/WI_concordance"
-params.kmer_size = 21
+params.kmer_size = 31
 params.sketches = 20000
 out_tsv = "out_k${params.kmer_size}_s${params.sketches}.tsv"
 println "Running Concordance on " + params.directory

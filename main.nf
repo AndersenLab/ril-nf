@@ -62,7 +62,7 @@ process sketch_fq_files {
 
     """
     zcat ${fq1} ${fq2} | pigz > ${dataset_id}.fq.gz
-    mash sketch -r -p 16 - ${min_kmer_count} -k ${kmer_size} -s ${sketch_count} -o ${dataset_id} ${dataset_id}.fq.gz
+    mash sketch -r -p 16 -m ${min_kmer_count} -k ${kmer_size} -s ${sketch_count} -o ${dataset_id} ${dataset_id}.fq.gz
     rm ${dataset_id}.fq.gz
     """
 }

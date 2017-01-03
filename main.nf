@@ -1,19 +1,21 @@
 #!/usr/bin/env nextflow
-params.directory = '/projects/b1059/data/fastq/WI/dna/processed/**/'
-params.analysis_dir = "/projects/b1059/analysis/WI_concordance"
-params.kmer_size = 31
-params.sketches = 20000
+directory = '/projects/b1059/data/fastq/WI/dna/processed/**/'
+analysis_dir = "/projects/b1059/analysis/WI_concordance"
+kmer_size = 21
+sketch_count = 20000
+min_kmer_count = 4
 
-output_base = "k${params.kmer_size}_s${params.sketches}.tsv"
+output_base = "k${kmer_size}_s${sketch_count}_m${min_kmer_count}.tsv"
 out_fq_tsv = "fq_${output_base}"
 out_strain_tsv = "strain_${output_base}"
 out_isotype_tsv = "isotype_${output_base}"
 
-println "Running Concordance on " + params.directory
-println "kmers: " + params.kmer_size
-println "sketches: " + params.sketches
+println "Running Concordance on " + directory
+println "kmers: " + kmer_size
+println "sketches: " + sketch_count
+println "minimum count of kmer: " + min_kmer_count
 
-Channel.fromFilePairs(params.directory + '*{1,2}P.fq.gz', flat: true)
+Channel.fromFilePairs(directory + '*{1,2}P.fq.gz', flat: true)
         .into { fq_pairs }
 
 // Construct strain and isotype lists
@@ -56,11 +58,11 @@ process sketch_fq_files {
     input:
         set dataset_id, file(fq1), file(fq2) from fq_pairs
     output:
-        file("${dataset_id}.msh") into sketches
+        file("${dataset_id}.msh") into fq_sketches
 
     """
     zcat ${fq1} ${fq2} | pigz > ${dataset_id}.fq.gz
-    mash sketch -r -p 16 -m 2 -k ${params.kmer_size} -s ${params.sketches} -o ${dataset_id} ${dataset_id}.fq.gz
+    mash sketch -r -p 16 - ${min_kmer_count} -k ${kmer_size} -s ${sketch_count} -o ${dataset_id} ${dataset_id}.fq.gz
     rm ${dataset_id}.fq.gz
     """
 }
@@ -68,7 +70,7 @@ process sketch_fq_files {
 process combine_fq_sketch_files {
 
     input:
-    file sketch from sketches.toList()
+    file sketch from fq_sketches.toList()
 
     output:
     file "output.msh" into fq_output
@@ -96,7 +98,7 @@ process sketch_strain_files {
 
     """
     zcat ${fq.join(" ")} | pigz > ${seq_id}.fq.gz
-    mash sketch -r -p 16 -m 2 -k ${params.kmer_size} -s ${params.sketches} -o ${seq_id} ${seq_id}.fq.gz
+    mash sketch -r -p 16 - ${min_kmer_count} -k ${kmer_size} -s ${sketch_count} -o ${seq_id} ${seq_id}.fq.gz
     rm ${seq_id}.fq.gz
     """
 }
@@ -133,7 +135,7 @@ process sketch_isotype_files {
 
     """
     zcat ${fq.join(" ")} | pigz > ${seq_id}.fq.gz
-    mash sketch -r -p 16 -m 2 -k ${params.kmer_size} -s ${params.sketches} -o ${seq_id} ${seq_id}.fq.gz
+    mash sketch -r -p 16 - ${min_kmer_count} -k ${kmer_size} -s ${sketch_count} -o ${seq_id} ${seq_id}.fq.gz
     rm ${seq_id}.fq.gz
     """
 }

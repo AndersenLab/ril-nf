@@ -98,7 +98,7 @@ process sketch_strain_files {
 
     """
     zcat ${fq.join(" ")} | pigz > ${seq_id}.fq.gz
-    mash sketch -r -p 16 - ${min_kmer_count} -k ${kmer_size} -s ${sketch_count} -o ${seq_id} ${seq_id}.fq.gz
+    mash sketch -r -p 16 -m ${min_kmer_count} -k ${kmer_size} -s ${sketch_count} -o ${seq_id} ${seq_id}.fq.gz
     rm ${seq_id}.fq.gz
     """
 }
@@ -135,7 +135,7 @@ process sketch_isotype_files {
 
     """
     zcat ${fq.join(" ")} | pigz > ${seq_id}.fq.gz
-    mash sketch -r -p 16 - ${min_kmer_count} -k ${kmer_size} -s ${sketch_count} -o ${seq_id} ${seq_id}.fq.gz
+    mash sketch -r -p 16 -m ${min_kmer_count} -k ${kmer_size} -s ${sketch_count} -o ${seq_id} ${seq_id}.fq.gz
     rm ${seq_id}.fq.gz
     """
 }

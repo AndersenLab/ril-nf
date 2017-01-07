@@ -73,7 +73,6 @@ process perform_alignment {
     
     """
         bwa mem -t ${cores} -R '${RG}' ${reference} ${fq1} ${fq2} | \\
-        head -n 200000 | \\
         sambamba view --nthreads=${cores} --sam-input --format=bam --with-header /dev/stdin | \\
         sambamba sort --nthreads=${cores} --show-progress --tmpdir=${tmpdir} --out=${fq_pair_id}.bam /dev/stdin
         sambamba index --nthreads=${cores} ${fq_pair_id}.bam
@@ -262,8 +261,6 @@ process call_variants_union {
 
     cpus cores
 
-    publishDir analysis_dir, mode: 'copy'
-
     tag { SM }
 
     input:
@@ -349,13 +346,14 @@ process merge_union_vcf {
 
 }
 
+filtered_vcf.into { filtered_vcf_gtcheck; filtered_vcf_stat }
 
 process gtcheck_tsv {
 
     publishDir analysis_dir, mode: 'copy'
 
     input:
-        file("${date}.merged.filtered.vcf.gz") from filtered_vcf
+        file("${date}.merged.filtered.vcf.gz") from filtered_vcf_gtcheck
 
     output:
         file("${date}.gtcheck.tsv")
@@ -373,13 +371,13 @@ process stat_tsv {
     publishDir analysis_dir, mode: 'copy'
 
     input:
-        file("${date}.merged.filtered.vcf.gz") from filtered_vcf
+        file("${date}.merged.filtered.vcf.gz") from filtered_vcf_stat
 
     output:
         file("${date}.stats.txt")
 
     """
-        bcftools stats ${date}.merged.filtered.vcf.gz | egrep '^CN' | cut -f 2-6 > ${date}.stats.txt
+        bcftools stats ${date}.merged.filtered.vcf.gz > ${date}.stats.txt
     """
 
 }

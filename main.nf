@@ -9,14 +9,6 @@ qual=30
 mq=40
 dv_dp=0.5
 
-tmpdir = "/projects/b1059/data/tmp"
-genome = "WS245"
-reference = "/projects/b1059/data/genomes/c_elegans/${genome}/${genome}.fa.gz"
-cores = 16
-compression_threads = 4
-date = new Date().format( 'yyyy-MM-dd' )
-analysis_dir = "/projects/b1059/analysis/${date}-WI-summary"
-
 tmpdir = config.tmpdir
 reference = config.reference
 cores = config.cores
@@ -44,7 +36,7 @@ strainJSON.each { SM, RG ->
     }
 }
 
-strain_set = strain_set[1..15]
+strain_set = strain_set
 
 strain_set_file = Channel.fromPath('strain_set.json')
 
@@ -68,8 +60,7 @@ process perform_alignment {
 
     cpus cores
 
-    // load gcc module so pthread_cancel works!
-    module 'gcc/5.1.0'
+    tag { fq_pair_id }
 
     input:
         set SM, RG, fq1, fq2, fq_pair_id from strain_set
@@ -81,9 +72,9 @@ process perform_alignment {
 
     
     """
-        bwa mem -t ${cores} -R '${RG}' ${reference} ${fq1} ${fq2} | \
-        head -n 200000 | \
-        sambamba view --nthreads=${cores} --sam-input --format=bam --with-header /dev/stdin | \
+        bwa mem -t ${cores} -R '${RG}' ${reference} ${fq1} ${fq2} | \\
+        head -n 200000 | \\
+        sambamba view --nthreads=${cores} --sam-input --format=bam --with-header /dev/stdin | \\
         sambamba sort --nthreads=${cores} --show-progress --tmpdir=${tmpdir} --out=${fq_pair_id}.bam /dev/stdin
         sambamba index --nthreads=${cores} ${fq_pair_id}.bam
     """
@@ -93,6 +84,8 @@ process perform_alignment {
     Fastq coverage
 */
 process coverage_fq {
+
+    tag { fq_pair_id }
 
     input:
         val fq_pair_id from fq_pair_id_cov
@@ -126,13 +119,10 @@ process coverage_fq_merge {
 
 
 process merge_bam {
-    echo true
 
     cpus cores
 
-
-    // load gcc module so pthread_cancel works!
-    module 'gcc/5.1.0'
+    tag { SM }
 
     input:
         set SM, bam, index from sample_aligned_bams.groupTuple()
@@ -141,9 +131,9 @@ process merge_bam {
         val SM into merged_SM_coverage
         val SM into merged_SM_individual
         val SM into merged_SM_union
+        set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_for_coverage
         set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_individual
         set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_union
-        set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_for_coverage
 
     """
 
@@ -168,11 +158,14 @@ process merge_bam {
 */
 process coverage_SM {
 
+    tag { SM }
+
     input:
         val SM from merged_SM_coverage
         set file("${SM}.bam"), file("${SM}.bam.bai") from merged_bams_for_coverage
 
     output:
+        val SM into SM_coverage_sample
         file("${SM}.coverage.tsv") into SM_coverage
 
 
@@ -185,6 +178,7 @@ process coverage_SM {
 process coverage_SM_merge {
 
     publishDir analysis_dir, mode: 'copy'
+
 
     input:
         val sm_set from SM_coverage.toList()
@@ -204,6 +198,8 @@ process call_variants_individual {
 
     cpus cores
 
+    tag { SM }
+
     input:
         val SM from merged_SM_individual
         set file("${SM}.bam"), file("${SM}.bam.bai") from merged_bams_individual
@@ -214,7 +210,7 @@ process call_variants_individual {
     """
     # Perform individual-level calling
     contigs="`samtools view -H ${SM}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
-    echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags AD,ADF,ADR,INFO/AD,SP --fasta-ref ${reference} ${SM}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${SM}.{}.individual.vcf.gz"
+    echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} ${SM}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${SM}.{}.individual.vcf.gz"
     order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${SM}." \$1 ".individual.vcf.gz" }'`
     
     # Output variant sites
@@ -242,10 +238,12 @@ process merge_variant_list {
         val sites from individual_sites.toList()
 
     output:
-        file("${date}.sitelist.tsv") into sitelist
         set file("${date}.sitelist.tsv.gz"), file("${date}.sitelist.tsv.gz.tbi") into gz_sitelist
+        file("${date}.sitelist.tsv") into sitelist
+
 
     """
+        echo ${sites}
         cat ${sites.join(" ")} | sort -k1,1 -k2,2n | uniq > ${date}.sitelist.tsv
         bgzip ${date}.sitelist.tsv -c > ${date}.sitelist.tsv.gz && tabix -s1 -b2 -e2 ${date}.sitelist.tsv.gz
     """
@@ -255,23 +253,32 @@ process merge_variant_list {
     Call variants using the merged site list
 */
 
+
+union_vcf_channel = merged_bams_union.spread(gz_sitelist)
+
+
+
 process call_variants_union {
 
     cpus cores
 
+    publishDir analysis_dir, mode: 'copy'
+
+    tag { SM }
+
     input:
         val SM from merged_SM_union
-        set file("${SM}.bam"), file("${SM}.bam.bai") from merged_bams_union
-        set file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from gz_sitelist
+        set file("${SM}.bam"), file("${SM}.bam.bai"), file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from union_vcf_channel
 
     output:
-        val SM into union_vcf_set_SM
+        val SM into union_vcf_SM
         file("${SM}.union.vcf.gz") into union_vcf_set
         file("${SM}.union.vcf.gz.csi") into union_vcf_set_indices
 
+
     """
         contigs="`samtools view -H ${SM}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
-        echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags AD,ADF,ADR,INFO/AD,SP --fasta-ref ${reference} ${SM}.bam | bcftools call -T sitelist.tsv.gz --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${SM}.{}.union.vcf.gz"
+        echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,INFO/AD,SP --fasta-ref ${reference} ${SM}.bam | bcftools call -T sitelist.tsv.gz --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${SM}.{}.union.vcf.gz"
         order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${SM}." \$1 ".union.vcf.gz" }'`
 
         # Output variant sites
@@ -283,10 +290,22 @@ process call_variants_union {
 }
 
 
-union_vcf_channel = Channel.create()
+process generate_union_vcf_list {
 
-union_vcf_set.each { f ->
-  union_vcf_channel.bind([f])
+
+    cpus 1 
+
+    publishDir analysis_dir, mode: 'copy'
+
+    input:
+       val vcf_set from union_vcf_set.toList()
+
+    output:
+       file("${date}.union_vcfs.txt") into union_vcfs
+
+    """
+        echo ${vcf_set.join(" ")} | tr ' ' '\\n' > ${date}.union_vcfs.txt
+    """
 }
 
 
@@ -297,16 +316,15 @@ process merge_union_vcf {
     publishDir analysis_dir, mode: 'copy'
 
     input:
-        val SM from union_vcf_set_SM
-        val union_vcfs from union_vcf_channel
-        file("${SM}.union.vcf.gz.csi") from union_vcf_set_indices
+        val SM from union_vcf_SM.toList()
+        file(union_vcfs:"union_vcfs.txt") from union_vcfs
 
     output:
         file("${date}.merged.raw.vcf.gz") into raw_vcf
         file("${date}.merged.filtered.vcf.gz") into filtered_vcf
 
     """
-        bcftools merge --threads 24 -O z -m all ${union_vcfs.join(" ")} > ${date}.merged.no_filter.vcf.gz
+        bcftools merge --threads 24 -O z -m all --file-list ${union_vcfs} > ${date}.merged.raw.vcf.gz
         bcftools index ${date}.merged.raw.vcf.gz
 
         min_depth=${min_depth}
@@ -318,12 +336,12 @@ process merge_union_vcf {
         bcftools filter -O u --threads 16 --set-GTs . --include "QUAL >= \${qual} || FORMAT/GT == '0/0'" |  \\
         bcftools filter -O u --threads 16 --set-GTs . --include "FORMAT/DP > \${min_depth}" | \\
         bcftools filter -O u --threads 16 --set-GTs . --include "INFO/MQ > \${mq}" | \\
-        bcftools filter -O u --threads 16 --set-GTs . --include "(FORMAT/DV)/(FORMAT/DP) >= \${dv_dp} || FORMAT/GT == '0/0'" | \\
-        vk filter REF --min=1 - | \\
-        vk filter ALT --min=1 - | \\
-        vk filter ALT --max=0.99 - | \\
-        vk filter MISSING --max=0.90 --soft-filter='high_missing' --mode=x - | \\
-        vk filter HET --max=0.10 --soft-filter='high_heterozygosity' --mode=+ - | \\
+        bcftools filter -O u --threads 16 --set-GTs . --include "(FORMAT/AD[1])/(FORMAT/DP) >= \${dv_dp} || FORMAT/GT == '0/0'" | \\
+        #vk filter REF --min=1 - | \\
+        #vk filter ALT --min=1 - | \\
+        #vk filter ALT --max=0.99 - | \\
+        #vk filter MISSING --max=0.90 --soft-filter="high_missing" --mode=x - | \\
+        #vk filter HET --max=0.10 --soft-filter="high_heterozygosity" --mode=+ - | \\
         bcftools view -O z - > ${date}.merged.filtered.vcf.gz
         bcftools index -f ${date}.merged.filtered.vcf.gz
 
@@ -331,19 +349,41 @@ process merge_union_vcf {
 
 }
 
-/*
-process stat_vcf {
+
+process gtcheck_tsv {
+
+    publishDir analysis_dir, mode: 'copy'
 
     input:
         file("${date}.merged.filtered.vcf.gz") from filtered_vcf
 
     output:
+        file("${date}.gtcheck.tsv")
 
     """
-    bcftools 
+        echo -e "discordance\\tsites\\tavg_min_depth\\ti\\tj" > ${date}.gtcheck.tsv
+        bcftools gtcheck -H -G 1 ${date}.merged.filtered.vcf.gz | egrep '^CN' | cut -f 2-6 >> ${date}.gtcheck.tsv
+    """
 
 }
-*/
+
+
+process stat_tsv {
+
+    publishDir analysis_dir, mode: 'copy'
+
+    input:
+        file("${date}.merged.filtered.vcf.gz") from filtered_vcf
+
+    output:
+        file("${date}.stats.txt")
+
+    """
+        bcftools stats ${date}.merged.filtered.vcf.gz | egrep '^CN' | cut -f 2-6 > ${date}.stats.txt
+    """
+
+}
+
 
 workflow.onComplete {
     println "Pipeline completed at: $workflow.complete"

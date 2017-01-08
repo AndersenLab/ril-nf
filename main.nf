@@ -4,11 +4,13 @@
 /*
     Filtering configuration
 */
-min_depth=3
-qual=30
-mq=40
-dv_dp=0.5
+min_depth = 3
+site_list = Channel.fromPath("sitelist.tsv.gz")
+site_list_index = Channel.fromPath("sitelist.tsv.gz.tbi")
 
+/*
+    Set these parameters in nextflow.config
+/*
 tmpdir = config.tmpdir
 reference = config.reference
 cores = config.cores
@@ -17,14 +19,13 @@ date = config.date
 genome = config.genome
 analysis_dir = config.analysis_dir
 
-println "Running Concordance on Wild Isolates"
+println "Processing RIL Data"
 println "Using Reference: ${genome}" 
 
 // Construct strain and isotype lists
 import groovy.json.JsonSlurper
 
 def strain_set = []
-def isotype_set = []
 
 // Strain
 def strainFile = new File('strain_set.json')
@@ -35,8 +36,6 @@ strainJSON.each { SM, RG ->
         strain_set << [SM, k, v[0], v[1], v[2]]
     }
 }
-
-strain_set = strain_set
 
 strain_set_file = Channel.fromPath('strain_set.json')
 
@@ -54,8 +53,9 @@ process setup_dirs {
 }
 
 /*
-    Fastq concordance
+    Fastq alignment
 */
+
 process perform_alignment {
 
     cpus 4
@@ -134,7 +134,6 @@ process merge_bam {
         val SM into merged_SM_individual
         val SM into merged_SM_union
         set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_for_coverage
-        set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_individual
         set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_union
 
     """
@@ -200,68 +199,9 @@ process coverage_SM_merge {
 }
 
 
-process call_variants_individual {
-
-    cpus 6
-
-    tag { SM }
-
-    input:
-        val SM from merged_SM_individual
-        set file("${SM}.bam"), file("${SM}.bam.bai") from merged_bams_individual
-
-    output:
-        file("${SM}.individual.sites.tsv") into individual_sites
-
-    """
-    # Perform individual-level calling
-    contigs="`samtools view -H ${SM}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
-    echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} ${SM}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${SM}.{}.individual.vcf.gz"
-    order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${SM}." \$1 ".individual.vcf.gz" }'`
-    
-    # Output variant sites
-    bcftools concat \${order} -O v | vk geno het-polarization - | bcftools view -O z > ${SM}.individual.vcf.gz
-    bcftools index ${SM}.individual.vcf.gz
-    rm \${order}
-
-    bcftools view -M 2 -m 2 -O v ${SM}.individual.vcf.gz | \\
-    bcftools filter --include 'DP > 3' | \\
-    egrep '(^#|1/1)' | \\
-    bcftools query -f '%CHROM\\t%POS\\t%REF,%ALT\\n' > ${SM}.individual.sites.tsv
-
-    """
-}
-
-/*
-    Merge individual sites
-*/
-
-process merge_variant_list {
-
-    publishDir analysis_dir, mode: 'copy'
-    
-    input:
-        val sites from individual_sites.toSortedList()
-
-    output:
-        set file("${date}.sitelist.tsv.gz"), file("${date}.sitelist.tsv.gz.tbi") into gz_sitelist
-        file("${date}.sitelist.tsv") into sitelist
-
-
-    """
-        echo ${sites}
-        cat ${sites.join(" ")} | sort -k1,1 -k2,2n | uniq > ${date}.sitelist.tsv
-        bgzip ${date}.sitelist.tsv -c > ${date}.sitelist.tsv.gz && tabix -s1 -b2 -e2 ${date}.sitelist.tsv.gz
-    """
-}
-
 /* 
     Call variants using the merged site list
 */
-
-
-union_vcf_channel = merged_bams_union.spread(gz_sitelist)
-
 
 
 process call_variants_union {
@@ -272,7 +212,9 @@ process call_variants_union {
 
     input:
         val SM from merged_SM_union
-        set file("${SM}.bam"), file("${SM}.bam.bai"), file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from union_vcf_channel
+        set file("${SM}.bam"), file("${SM}.bam.bai") from merged_bams_union
+        file 'sitelist.tsv.gz' from site_list 
+        file 'sitelist.tsv.gz.tbi' from site_list_index
 
     output:
         val SM into union_vcf_SM
@@ -295,7 +237,6 @@ process call_variants_union {
 
 
 process generate_union_vcf_list {
-
 
     cpus 1 
 
@@ -332,20 +273,8 @@ process merge_union_vcf {
         bcftools index ${date}.merged.raw.vcf.gz
 
         min_depth=${min_depth}
-        qual=${qual}
-        mq=${mq}
-        dv_dp=${dv_dp}
-
         bcftools view ${date}.merged.raw.vcf.gz | \\
-        bcftools filter -O u --threads 16 --set-GTs . --include "QUAL >= \${qual} || FORMAT/GT == '0/0'" |  \\
         bcftools filter -O u --threads 16 --set-GTs . --include "FORMAT/DP > \${min_depth}" | \\
-        bcftools filter -O u --threads 16 --set-GTs . --include "INFO/MQ > \${mq}" | \\
-        bcftools filter -O u --threads 16 --set-GTs . --include "(FORMAT/AD[1])/(FORMAT/DP) >= \${dv_dp} || FORMAT/GT == '0/0'" | \\
-        #vk filter REF --min=1 - | \\
-        #vk filter ALT --min=1 - | \\
-        #vk filter ALT --max=0.99 - | \\
-        #vk filter MISSING --max=0.90 --soft-filter="high_missing" --mode=x - | \\
-        #vk filter HET --max=0.10 --soft-filter="high_heterozygosity" --mode=+ - | \\
         bcftools view -O z - > ${date}.merged.filtered.vcf.gz
         bcftools index -f ${date}.merged.filtered.vcf.gz
 

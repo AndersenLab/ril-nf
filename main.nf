@@ -108,11 +108,14 @@ process coverage_fq_merge {
         val fq_set from fq_coverage.toList()
 
     output:
+        file("${date}.fq_coverage.full.tsv")
         file("${date}.fq_coverage.tsv")
 
     """
         echo -e 'bam\\tcontig\\tstart\\tend\\tproperty\\tvalue' > ${date}.fq_coverage.tsv
-        cat ${fq_set.join(" ")} >> ${date}.fq_coverage.tsv
+        cat ${fq_set.join(" ")} >> ${date}.fq_coverage.full.tsv
+
+        cat <(echo -e 'fq\\tcoverage') <( cat ${date}.fq_coverage.full.tsv | grep 'genome' | grep 'depth_of_coverage' | cut -f 1,6) > ${date}.fq_coverage.tsv
     """
 }
 
@@ -183,11 +186,15 @@ process coverage_SM_merge {
         val sm_set from SM_coverage.toList()
 
     output:
+        file("${date}.SM_coverage.full.tsv")
         file("${date}.SM_coverage.tsv")
 
     """
         echo -e 'bam\\tcontig\\tstart\\tend\\tproperty\\tvalue' > ${date}.SM_coverage.tsv
-        cat ${sm_set.join(" ")} >> ${date}.SM_coverage.tsv
+        cat ${sm_set.join(" ")} >> ${date}.SM_coverage.full.tsv
+
+        # Generate condensed version
+        cat <(echo -e 'strain\\tcoverage') <(cat ${date}.SM_coverage.full.tsv | grep 'genome' | grep 'depth_of_coverage' | cut -f 1,6) > ${date}.SM_coverage.tsv
     """
 
 }
@@ -195,7 +202,7 @@ process coverage_SM_merge {
 
 process call_variants_individual {
 
-    cpus cores
+    cpus 6
 
     tag { SM }
 
@@ -259,7 +266,7 @@ union_vcf_channel = merged_bams_union.spread(gz_sitelist)
 
 process call_variants_union {
 
-    cpus cores
+    cpus 6
 
     tag { SM }
 
@@ -356,7 +363,7 @@ process gtcheck_tsv {
         file("${date}.merged.filtered.vcf.gz") from filtered_vcf_gtcheck
 
     output:
-        file("${date}.gtcheck.tsv")
+        file("${date}.gtcheck.tsv") into gtcheck
 
     """
         echo -e "discordance\\tsites\\tavg_min_depth\\ti\\tj" > ${date}.gtcheck.tsv

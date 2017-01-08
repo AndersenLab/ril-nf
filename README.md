@@ -1,4 +1,4 @@
-# fq-profile-nf
+# concordance-nf
 
 Perform Fastq-Profiling in the current working directory.
 

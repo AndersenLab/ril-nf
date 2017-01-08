@@ -105,7 +105,7 @@ process coverage_fq_merge {
     publishDir analysis_dir, mode: 'copy'
 
     input:
-        val fq_set from fq_coverage.toList()
+        val fq_set from fq_coverage.toSortedList()
 
     output:
         file("${date}.fq_coverage.full.tsv")
@@ -183,7 +183,7 @@ process coverage_SM_merge {
 
 
     input:
-        val sm_set from SM_coverage.toList()
+        val sm_set from SM_coverage.toSortedList()
 
     output:
         file("${date}.SM_coverage.full.tsv")
@@ -241,7 +241,7 @@ process merge_variant_list {
     publishDir analysis_dir, mode: 'copy'
     
     input:
-        val sites from individual_sites.toList()
+        val sites from individual_sites.toSortedList()
 
     output:
         set file("${date}.sitelist.tsv.gz"), file("${date}.sitelist.tsv.gz.tbi") into gz_sitelist
@@ -302,7 +302,7 @@ process generate_union_vcf_list {
     publishDir analysis_dir, mode: 'copy'
 
     input:
-       val vcf_set from union_vcf_set.toList()
+       val vcf_set from union_vcf_set.toSortedList()
 
     output:
        file("${date}.union_vcfs.txt") into union_vcfs
@@ -320,7 +320,7 @@ process merge_union_vcf {
     publishDir analysis_dir, mode: 'copy'
 
     input:
-        val SM from union_vcf_SM.toList()
+        val SM from union_vcf_SM.toSortedList()
         file(union_vcfs:"union_vcfs.txt") from union_vcfs
 
     output:

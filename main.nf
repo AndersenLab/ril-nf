@@ -58,7 +58,7 @@ process setup_dirs {
 */
 process perform_alignment {
 
-    cpus cores
+    cpus 4
 
     tag { fq_pair_id }
 

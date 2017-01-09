@@ -10,7 +10,7 @@ site_list_index = Channel.fromPath("sitelist.tsv.gz.tbi")
 
 /*
     Set these parameters in nextflow.config
-/*
+*/
 tmpdir = config.tmpdir
 reference = config.reference
 cores = config.cores
@@ -18,6 +18,7 @@ compression_threads = config.compression_threads
 date = config.date
 genome = config.genome
 analysis_dir = config.analysis_dir
+bam_dir = config.bam_dir
 
 println "Processing RIL Data"
 println "Using Reference: ${genome}" 
@@ -36,6 +37,7 @@ strainJSON.each { SM, RG ->
         strain_set << [SM, k, v[0], v[1], v[2]]
     }
 }
+
 
 strain_set_file = Channel.fromPath('strain_set.json')
 
@@ -121,6 +123,8 @@ process coverage_fq_merge {
 
 
 process merge_bam {
+
+    publishDir bam_dir, mode: 'copy'
 
     cpus cores
 

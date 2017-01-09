@@ -124,7 +124,7 @@ process coverage_fq_merge {
 
 process merge_bam {
 
-    publishDir bam_dir, mode: 'copy'
+    publishDir bam_dir, mode: 'copy', pattern: '*.bam*'
 
     cpus cores
 
@@ -137,8 +137,11 @@ process merge_bam {
         val SM into merged_SM_coverage
         val SM into merged_SM_individual
         val SM into merged_SM_union
+        val SM into merged_SM_idxstats
         set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_for_coverage
         set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_union
+        set file("${SM}.bam"), file("${SM}.bam.bai") into bams_idxstats
+        file("${SM}.duplicates.txt") into duplicates_file
 
     """
 
@@ -154,6 +157,58 @@ process merge_bam {
 
     picard MarkDuplicates I=${SM}.merged.bam O=${SM}.bam M=${SM}.duplicates.txt VALIDATION_STRINGENCY=SILENT REMOVE_DUPLICATES=false
     sambamba index --nthreads=${cores} ${SM}.bam
+    """
+}
+
+
+process idx_stats {
+    
+    input:
+        val SM from merged_SM_idxstats
+        set file("${SM}.bam"), file("${SM}.bam.bai") from bams_idxstats
+    output:
+        file bam_idxstats into bam_idxstats_set
+
+    """
+        samtools idxstats ${SM}.bam | awk '{ print "${SM}\\t" \$0 }' > bam_idxstats
+    """
+}
+
+process combine_idx_stats {
+
+    publishDir analysis_dir, mode: 'copy'
+
+    input:
+        val bam_idxstats from bam_idxstats_set.toSortedList()
+
+    output:
+        file("${date}.bam_idxstats.tsv")
+
+    """
+        echo -e "SM\\treference\\treference_length\\tmapped_reads\\tunmapped_reads" > ${date}.bam_idxstats.tsv
+        cat ${bam_idxstats.join(" ")} >> ${date}.bam_idxstats.tsv
+    """
+
+}
+
+
+process format_duplicates {
+
+    publishDir analysis_dir, mode: 'copy'
+
+    input:
+        val duplicates_set from duplicates_file.toSortedList()
+
+    output:
+        file("${date}.duplicates_summary.tsv")
+
+
+    """
+        echo -e 'filename\\tlibrary\\tunpaired_reads_examined\\tread_pairs_examined\\tsecondary_or_supplementary_rds\\tunmapped_reads\\tunpaired_read_duplicates\\tread_pair_duplicates\\tread_pair_optical_duplicates\\tpercent_duplication\\testimated_library_size' > ${date}.duplicates_summary.tsv
+        for i in ${duplicates_set.join(" ")}; do
+            f=\$(basename \${i})
+            cat \${i} | awk -v f=\${f/.duplicates.txt/} 'NR >= 8 && \$0 !~ "##.*" && \$0 != ""  { print f "\\t" \$0 } NR >= 8 && \$0 ~ "##.*" { exit }'  >> ${date}.duplicates_summary.tsv
+        done;
     """
 }
 
@@ -207,6 +262,10 @@ process coverage_SM_merge {
     Call variants using the merged site list
 */
 
+site_list =  site_list.phase(site_list_index)
+union_vcf_channel = merged_bams_union.spread(site_list)
+
+union_vcf_channel.println()
 
 process call_variants_union {
 
@@ -216,9 +275,7 @@ process call_variants_union {
 
     input:
         val SM from merged_SM_union
-        set file("${SM}.bam"), file("${SM}.bam.bai") from merged_bams_union
-        file 'sitelist.tsv.gz' from site_list 
-        file 'sitelist.tsv.gz.tbi' from site_list_index
+        set file("${SM}.bam"), file("${SM}.bam.bai"), file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from union_vcf_channel
 
     output:
         val SM into union_vcf_SM

@@ -532,8 +532,5 @@ workflow.onComplete {
     Error report: ${workflow.errorReport ?: '-'}
     profile: ${workflow.profile}
     Analysis Directory: ${analysis_dir}
-    Nextflow Version: ${nextflow.version}
-    Nextflow Build: ${nextflow.build}
-    Nextflow Timestamp: ${nextflow.timestamp}
     """
 }

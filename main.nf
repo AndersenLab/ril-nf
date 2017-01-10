@@ -19,6 +19,7 @@ date = config.date
 genome = config.genome
 analysis_dir = config.analysis_dir
 bam_dir = config.bam_dir
+call_variant_cpus = config.call_variant_cpus
 
 println "Processing RIL Data"
 println "Using Reference: ${genome}" 
@@ -262,14 +263,14 @@ process coverage_SM_merge {
     Call variants using the merged site list
 */
 
-site_list =  site_list.phase(site_list_index)
+site_list =  site_list.spread(site_list_index)
 union_vcf_channel = merged_bams_union.spread(site_list)
 
-union_vcf_channel.println()
+
 
 process call_variants_union {
 
-    cpus 6
+    cpus call_variant_cpus
 
     tag { SM }
 
@@ -285,7 +286,7 @@ process call_variants_union {
 
     """
         contigs="`samtools view -H ${SM}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
-        echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,INFO/AD,SP --fasta-ref ${reference} ${SM}.bam | bcftools call -T sitelist.tsv.gz --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${SM}.{}.union.vcf.gz"
+        echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,INFO/AD,SP --fasta-ref ${reference} ${SM}.bam | bcftools call -T sitelist.tsv.gz --skip-variants indels  --multiallelic-caller -O z  -  > ${SM}.{}.union.vcf.gz"
         order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${SM}." \$1 ".union.vcf.gz" }'`
 
         # Output variant sites
@@ -299,6 +300,8 @@ process call_variants_union {
 
 process generate_union_vcf_list {
 
+    echo true
+
     cpus 1 
 
     publishDir analysis_dir, mode: 'copy'
@@ -310,6 +313,7 @@ process generate_union_vcf_list {
        file("${date}.union_vcfs.txt") into union_vcfs
 
     """
+        echo ${vcf_set.join(" ")}
         echo ${vcf_set.join(" ")} | tr ' ' '\\n' > ${date}.union_vcfs.txt
     """
 }

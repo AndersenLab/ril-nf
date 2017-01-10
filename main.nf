@@ -55,6 +55,22 @@ process setup_dirs {
     """
 }
 
+process workflow_info {
+
+    executor 'local'
+
+    publishDir analysis_dir, mode: 'copy'
+
+    output:
+        file("workflow.txt")
+
+    """
+        echo "Git info: $workflow.repository" > workflow.txt
+        echo "Revision: $workflow.revision [$workflow.commitId]" >> workflow.txt
+    """
+
+}
+
 /*
     Fastq alignment
 */
@@ -72,6 +88,10 @@ process perform_alignment {
         val "${fq_pair_id}" into fq_pair_id_cov
         file "${fq_pair_id}.bam" into fq_cov_bam
         file "${fq_pair_id}.bam.bai" into fq_cov_bam_indices
+        val "${fq_pair_id}" into fq_stat_bam_val
+        val "${fq_pair_id}" into fq_pair_id_idxstats
+        set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") into fq_idx_stats_bam
+        set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") into fq_stat_bams
 
     
     """
@@ -79,6 +99,77 @@ process perform_alignment {
         sambamba view --nthreads=${cores} --sam-input --format=bam --with-header /dev/stdin | \\
         sambamba sort --nthreads=${cores} --show-progress --tmpdir=${tmpdir} --out=${fq_pair_id}.bam /dev/stdin
         sambamba index --nthreads=${cores} ${fq_pair_id}.bam
+    """
+}
+
+
+/*
+    fq idx stats
+*/
+
+process fq_idx_stats {
+    
+    input:
+        val fq_pair_id from fq_pair_id_idxstats
+        set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_idx_stats_bam
+    output:
+        file fq_idxstats into fq_idxstats_set
+
+    """
+        samtools idxstats ${fq_pair_id}.bam | awk '{ print "${fq_pair_id}\\t" \$0 }' > fq_idxstats
+    """
+}
+
+process fq_combine_idx_stats {
+
+    publishDir analysis_dir + "/fq", mode: 'copy'
+
+    input:
+        val bam_idxstats from fq_idxstats_set.toSortedList()
+
+    output:
+        file("${date}.fq_bam_idxstats.tsv")
+
+    """
+        echo -e "SM\\treference\\treference_length\\tmapped_reads\\tunmapped_reads" > ${date}.fq_bam_idxstats.tsv
+        cat ${bam_idxstats.join(" ")} >> ${date}.fq_bam_idxstats.tsv
+    """
+
+}
+
+/*
+    fq bam stats
+*/
+
+process fq_bam_stats {
+
+    tag { fq_pair_id }
+
+    input:
+        val fq_pair_id from fq_stat_bam_val
+        set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_stat_bams
+
+    output:
+        file 'bam_stat' into bam_stat_files
+
+    """
+        cat <(samtools stats ${fq_pair_id}.bam | grep ^SN | cut -f 2- | awk '{ print "${fq_pair_id}\t" \$0 }' | sed 's/://g') > bam_stat
+    """
+}
+
+process combine_bam_stats {
+
+    publishDir analysis_dir + "/fq", mode: 'copy'
+
+    input:
+        val stat_files from bam_stat_files.toSortedList()
+
+    output:
+        file("${date}.fq_bam_stats.tsv")
+
+    """
+        echo -e "fq_pair_id\\tvariable\\tvalue\\tcomment" > ${date}.fq_bam_stats.tsv
+        cat ${stat_files.join(" ")} >> ${date}.fq_bam_stats.tsv
     """
 }
 
@@ -105,7 +196,7 @@ process coverage_fq {
 
 process coverage_fq_merge {
 
-    publishDir analysis_dir, mode: 'copy'
+    publishDir analysis_dir + "/fq", mode: 'copy'
 
     input:
         val fq_set from fq_coverage.toSortedList()
@@ -115,7 +206,7 @@ process coverage_fq_merge {
         file("${date}.fq_coverage.tsv")
 
     """
-        echo -e 'bam\\tcontig\\tstart\\tend\\tproperty\\tvalue' > ${date}.fq_coverage.tsv
+        echo -e 'bam\\tcontig\\tstart\\tend\\tproperty\\tvalue' > ${date}.fq_coverage.full.tsv
         cat ${fq_set.join(" ")} >> ${date}.fq_coverage.full.tsv
 
         cat <(echo -e 'fq\\tcoverage') <( cat ${date}.fq_coverage.full.tsv | grep 'genome' | grep 'depth_of_coverage' | cut -f 1,6) > ${date}.fq_coverage.tsv
@@ -139,9 +230,11 @@ process merge_bam {
         val SM into merged_SM_individual
         val SM into merged_SM_union
         val SM into merged_SM_idxstats
+        val SM into merged_SM_bamstats
         set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_for_coverage
         set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_union
         set file("${SM}.bam"), file("${SM}.bam.bai") into bams_idxstats
+        set file("${SM}.bam"), file("${SM}.bam.bai") into bams_stats
         file("${SM}.duplicates.txt") into duplicates_file
 
     """
@@ -161,8 +254,11 @@ process merge_bam {
     """
 }
 
+/*
+ SM idx stats
+*/
 
-process idx_stats {
+process idx_stats_SM {
     
     input:
         val SM from merged_SM_idxstats
@@ -177,7 +273,7 @@ process idx_stats {
 
 process combine_idx_stats {
 
-    publishDir analysis_dir, mode: 'copy'
+    publishDir analysis_dir +"/SM", mode: 'copy'
 
     input:
         val bam_idxstats from bam_idxstats_set.toSortedList()
@@ -193,22 +289,60 @@ process combine_idx_stats {
 }
 
 
+/*
+    SM bam stats
+*/
+
+process SM_bam_stats {
+
+    tag { SM }
+
+    input:
+        val SM from merged_SM_bamstats
+        set file("${SM}.bam"), file("${SM}.bam.bai") from bams_stats
+
+    output:
+        file 'bam_stat' into SM_bam_stat_files
+
+    """
+        cat <(samtools stats ${SM}.bam | grep ^SN | cut -f 2- | awk '{ print "${SM}\t" \$0 }' | sed 's/://g') > bam_stat
+    """
+}
+
+process combine_SM_bam_stats {
+
+    publishDir analysis_dir + "/SM", mode: 'copy'
+
+    input:
+        val stat_files from SM_bam_stat_files.toSortedList()
+
+    output:
+        file("${date}.SM_bam_stats.tsv")
+
+    """
+        echo -e "fq_pair_id\\tvariable\\tvalue\\tcomment" > ${date}.SM_bam_stats.tsv
+        cat ${stat_files.join(" ")} >> ${date}.SM_bam_stats.tsv
+    """
+}
+
+
+
 process format_duplicates {
 
-    publishDir analysis_dir, mode: 'copy'
+    publishDir analysis_dir + "/duplicates", mode: 'copy'
 
     input:
         val duplicates_set from duplicates_file.toSortedList()
 
     output:
-        file("${date}.duplicates_summary.tsv")
+        file("${date}.bam_duplicates.tsv")
 
 
     """
-        echo -e 'filename\\tlibrary\\tunpaired_reads_examined\\tread_pairs_examined\\tsecondary_or_supplementary_rds\\tunmapped_reads\\tunpaired_read_duplicates\\tread_pair_duplicates\\tread_pair_optical_duplicates\\tpercent_duplication\\testimated_library_size' > ${date}.duplicates_summary.tsv
+        echo -e 'filename\\tlibrary\\tunpaired_reads_examined\\tread_pairs_examined\\tsecondary_or_supplementary_rds\\tunmapped_reads\\tunpaired_read_duplicates\\tread_pair_duplicates\\tread_pair_optical_duplicates\\tpercent_duplication\\testimated_library_size' > ${date}.bam_duplicates.tsv
         for i in ${duplicates_set.join(" ")}; do
             f=\$(basename \${i})
-            cat \${i} | awk -v f=\${f/.duplicates.txt/} 'NR >= 8 && \$0 !~ "##.*" && \$0 != ""  { print f "\\t" \$0 } NR >= 8 && \$0 ~ "##.*" { exit }'  >> ${date}.duplicates_summary.tsv
+            cat \${i} | awk -v f=\${f/.duplicates.txt/} 'NR >= 8 && \$0 !~ "##.*" && \$0 != ""  { print f "\\t" \$0 } NR >= 8 && \$0 ~ "##.*" { exit }'  >> ${date}.bam_duplicates.tsv
         done;
     """
 }
@@ -238,7 +372,7 @@ process coverage_SM {
 
 process coverage_SM_merge {
 
-    publishDir analysis_dir, mode: 'copy'
+    publishDir analysis_dir + "/SM", mode: 'copy'
 
 
     input:
@@ -249,7 +383,7 @@ process coverage_SM_merge {
         file("${date}.SM_coverage.tsv")
 
     """
-        echo -e 'bam\\tcontig\\tstart\\tend\\tproperty\\tvalue' > ${date}.SM_coverage.tsv
+        echo -e 'SM\\tcontig\\tstart\\tend\\tproperty\\tvalue' > ${date}.SM_coverage.full.tsv
         cat ${sm_set.join(" ")} >> ${date}.SM_coverage.full.tsv
 
         # Generate condensed version
@@ -300,11 +434,9 @@ process call_variants_union {
 
 process generate_union_vcf_list {
 
-    echo true
-
     cpus 1 
 
-    publishDir analysis_dir, mode: 'copy'
+    publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
        val vcf_set from union_vcf_set.toSortedList()
@@ -313,17 +445,17 @@ process generate_union_vcf_list {
        file("${date}.union_vcfs.txt") into union_vcfs
 
     """
-        echo ${vcf_set.join(" ")}
         echo ${vcf_set.join(" ")} | tr ' ' '\\n' > ${date}.union_vcfs.txt
     """
 }
+
 
 
 process merge_union_vcf {
 
     cpus cores
 
-    publishDir analysis_dir, mode: 'copy'
+    publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
         val SM from union_vcf_SM.toSortedList()
@@ -351,7 +483,7 @@ filtered_vcf.into { filtered_vcf_gtcheck; filtered_vcf_stat }
 
 process gtcheck_tsv {
 
-    publishDir analysis_dir, mode: 'copy'
+    publishDir analysis_dir + "/concordance", mode: 'copy'
 
     input:
         file("${date}.merged.filtered.vcf.gz") from filtered_vcf_gtcheck
@@ -369,22 +501,39 @@ process gtcheck_tsv {
 
 process stat_tsv {
 
-    publishDir analysis_dir, mode: 'copy'
+    publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
         file("${date}.merged.filtered.vcf.gz") from filtered_vcf_stat
 
     output:
-        file("${date}.stats.txt")
+        file("${date}.filtered.stats.txt")
 
     """
-        bcftools stats ${date}.merged.filtered.vcf.gz > ${date}.stats.txt
+        bcftools stats --verbose ${date}.merged.filtered.vcf.gz > ${date}.filtered.stats.txt
     """
 
 }
 
 
 workflow.onComplete {
-    println "Pipeline completed at: $workflow.complete"
-    println "Execution status: ${ workflow.success ? 'OK' : 'failed' }"
+    def subject = 'RIL Workflow'
+    def recipient = config.email
+
+    ['mail', '-s', subject, recipient].execute() << """
+
+    RIL Pipeline complete
+    ---------------------------
+    Completed at: ${workflow.complete}
+    Duration    : ${workflow.duration}
+    Success     : ${workflow.success}
+    workDir     : ${workflow.workDir}
+    exit status : ${workflow.exitStatus}
+    Error report: ${workflow.errorReport ?: '-'}
+    profile: ${workflow.profile}
+    Analysis Directory: ${analysis_dir}
+    Nextflow Version: ${nextflow.version}
+    Nextflow Build: ${nextflow.build}
+    Nextflow Timestamp: ${nextflow.timestamp}
+    """
 }

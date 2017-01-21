@@ -1,15 +1,18 @@
 #!/usr/bin/env nextflow
 
+println params.type
 
 process dump_json {
 
     executor 'local'
 
+    publishDir "."
+
     output:
         file "fq_data.json" into fq_data
 
     """
-        fq query 'strain_type = RIL, use = True' > fq_data.json
+        fq query 'strain_type = ${params.type}, use = True' > fq_data.json
     """
 }
 
@@ -25,7 +28,7 @@ process generate_sets {
     output:
         file "strain_set.json" into strain_json
 
-    '''
+    """
     #!/usr/bin/env Rscript --vanilla
     
     library(dplyr)
@@ -41,7 +44,7 @@ process generate_sets {
     }
 
     fq <- jsonlite::fromJSON("fq_data.json") %>%
-      dplyr::filter(strain_type == "RIL") %>%
+      dplyr::filter(strain_type == "${params.type}") %>%
       dplyr::filter(grepl("b1059", filename)) %>%
       dplyr::filter(grepl("processed", filename)) %>%
       dplyr::mutate(library = barcode) %>%
@@ -54,9 +57,9 @@ process generate_sets {
       dplyr::mutate(RG = paste0("@RG\\tID:", ID, "\\tLB:", LB, "\\tSM:", SM))
 
     # Generate strain and isotype concordance sets
-    fstrains <- lapply(split(fq, fq$strain), function(i) {
-        lapply(split(i, i$RG), function(x) {
-            f1 <- x$filename
+    fstrains <- lapply(split(fq, fq\$strain), function(i) {
+        lapply(split(i, i\$RG), function(x) {
+            f1 <- x\$filename
             f2 <- gsub("1P.fq.gz", "2P.fq.gz", f1)
             set_id <- lcsbstr(basename(f1), basename(f2))
        c(f1, f2, set_id)
@@ -64,7 +67,5 @@ process generate_sets {
     }) %>% jsonlite::toJSON(., pretty = TRUE)
 
     readr::write_lines(fstrains, "strain_set.json")
-
-
-    '''
+    """
 }

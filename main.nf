@@ -1,10 +1,10 @@
 #!/usr/bin/env nextflow
 //directory = '/projects/b1059/data/fastq/WI/dna/processed/**/'
-
 /*
     Filtering configuration
 */
 min_depth = 3
+bam_dir = "/projects/b1059/data/${params.type}"
 site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
 site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
 concordance_script=Channel.fromPath("concordance.R")

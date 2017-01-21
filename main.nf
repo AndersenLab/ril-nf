@@ -33,7 +33,7 @@ import groovy.json.JsonSlurper
 def strain_set = []
 
 // Strain
-def strainFile = new File("{params.type}.strain_set.json")
+def strainFile = new File("${params.type}.strain_set.json")
 def strainJSON = new JsonSlurper().parseText(strainFile.text)
 
 strainJSON.each { SM, RG ->

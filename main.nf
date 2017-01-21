@@ -49,12 +49,16 @@ process setup_dirs {
 
     executor 'local'
 
+    publishDir analysis_dir
+
     input:
-        file 'strain_set' from strain_set_file
+        file("${params.type}.strain_set.json") from strain_set_file
+
+    output:
+        file("${params.type}.strain_set.json")
 
     """
         mkdir -p ${analysis_dir}
-        cp 'strain_set' ${analysis_dir}/${params.type}.strain_set.json
     """
 }
 

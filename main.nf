@@ -105,8 +105,6 @@ process fq_call_variants {
 
     tag { fq_pair_id }
 
-    publishDir analysis_dir + "/fq_pair_vcf", mode: 'copy'
-
     input:
         val fq_pair_id from fq_pair_id_concordance_val
         set val(SM), file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_pair_id_concordance

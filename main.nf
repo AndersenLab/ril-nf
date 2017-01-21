@@ -8,6 +8,7 @@ min_depth = 3
 site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
 site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
 concordance_script=Channel.fromPath("concordance.R")
+hmm_plot_script=Channel.fromPath("plot_hmm.R")
 
 /*
     Set these parameters in nextflow.config
@@ -559,7 +560,7 @@ process filter_union_vcf {
     """
 }
 
-filtered_vcf.into { filtered_vcf_gtcheck; filtered_vcf_stat }
+filtered_vcf.into { filtered_vcf_gtcheck; filtered_vcf_stat; hmm_vcf; hmm_vcf_clean; hmm_vcf_out }
 
 process gtcheck_tsv {
 
@@ -591,6 +592,76 @@ process stat_tsv {
 
     """
         bcftools stats --verbose merged.filtered.vcf.gz > filtered.stats.txt
+    """
+
+}
+
+process output_hmm {
+
+    publishDir analysis_dir + "/hmm", mode: 'copy'
+
+    input:
+        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from hmm_vcf
+
+    output:
+        file("gt_hmm.tsv")
+
+    """
+        vk hmm --alt=ALT merged.filtered.vcf.gz > gt_hmm.tsv
+    """
+
+}
+
+process output_hmm_clean {
+
+    publishDir analysis_dir + "/hmm", mode: 'copy'
+
+    input:
+        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from hmm_vcf_clean
+
+    output:
+        file("gt_hmm_fill.tsv") into gt_hmm_fill
+
+    """
+        vk hmm --infill --endfill --alt=ALT merged.filtered.vcf.gz > gt_hmm_fill.tsv
+    """
+
+}
+
+
+
+process output_hmm_vcf {
+
+    publishDir analysis_dir + "/hmm", mode: 'copy'
+
+    input:
+        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from hmm_vcf_out
+
+    output:
+        file("gt_hmm.vcf.gz") 
+        file("gt_hmm.vcf.gz.csi")
+
+    """
+        vk hmm --vcf-out --alt=ALT merged.filtered.vcf.gz | bcftools view -O z > gt_hmm.vcf.gz
+        bcftools index gt_hmm.vcf.gz
+    """
+
+}
+
+process plot_hmm {
+
+    publishDir analysis_dir + "/hmm", mode: 'copy'
+
+    input:
+        file("gt_hmm_fill.tsv") from gt_hmm_fill
+        file("script.R") from hmm_plot_script
+
+    output:
+        file("gt_hmm.png")
+        file("gt_hmm.svg")
+
+    """
+        Rscript --vanilla script.R
     """
 
 }

@@ -50,11 +50,11 @@ process setup_dirs {
     executor 'local'
 
     input:
-        file strain_set_file
+        file 'strain_set' from strain_set_file
 
     """
         mkdir -p ${analysis_dir}
-        cp strain_set_file ${analysis_dir}/${params.type}.strain_set.json
+        cp 'strain_set' ${analysis_dir}/${params.type}.strain_set.json
     """
 }
 

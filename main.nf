@@ -43,7 +43,7 @@ strainJSON.each { SM, RG ->
 }
 
 
-strain_set_file = Channel.fromPath('strain_set.json')
+strain_set_file = Channel.fromPath('${params.type}.strain_set.json')
 
 process setup_dirs {
 

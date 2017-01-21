@@ -7,6 +7,7 @@
 min_depth = 3
 site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
 site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
+concordance_script=Channel.fromPath("concordance.R")
 
 /*
     Set these parameters in nextflow.config
@@ -106,7 +107,7 @@ process fq_call_variants {
         set val(SM), file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_pair_id_concordance
 
     output:
-        file("${SM}.${fq_pair_id}.tsv") into individual_sites
+        file("out.tsv") into fq_individual_sites
 
     """
     # Perform individual-level calling
@@ -123,9 +124,28 @@ process fq_call_variants {
     bcftools filter --include 'DP > 3' | \\
     grep -v "0\\/1" | \\
     bcftools query -f '%CHROM-%POS[\\t%GT]\\n' | \\
-    awk '{ sub(/0\\/0/, "0");  sub(/1\\/1/, "1"); print }' > ${SM}.${fq_pair_id}.tsv
+    awk '{ sub(/0\\/0/, "0");  sub(/1\\/1/, "1"); print "${SM}.${fq_pair_id}\\t" \$0 }' > out.tsv
 
     """
+}
+
+process fq_SM_concordance {
+
+    publishDir analysis_dir + "/concordance", mode: 'copy'
+
+    input:
+        file("out?.tsv") from fq_individual_sites.toList()
+        file(s:"script.R") from concordance_script
+
+    output:
+        file("fq_concordance.svg")
+        file("fq_concordance.png")
+        file("fq_concordance.tsv")
+
+    """
+        Rscript --vanilla ${s} 
+    """
+        
 }
 
 

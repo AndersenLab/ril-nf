@@ -5,8 +5,8 @@
     Filtering configuration
 */
 min_depth = 3
-site_list = Channel.fromPath("sitelist.tsv.gz")
-site_list_index = Channel.fromPath("sitelist.tsv.gz.tbi")
+site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
+site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
 
 /*
     Set these parameters in nextflow.config
@@ -14,15 +14,16 @@ site_list_index = Channel.fromPath("sitelist.tsv.gz.tbi")
 tmpdir = config.tmpdir
 reference = config.reference
 cores = config.cores
-compression_threads = config.compression_threads
-date = config.date
-genome = config.genome
-analysis_dir = config.analysis_dir
+analysis_dir = config.analysis_root + "/${params.type}-analysis"
 bam_dir = config.bam_dir
 call_variant_cpus = config.call_variant_cpus
 
+// Define contigs here!
+contig_list = ["I", "II", "III", "IV", "V", "X", "MtDNA"]
+contigs = Channel.from(contig_list)
+
 println "Processing RIL Data"
-println "Using Reference: ${genome}" 
+println "Using Reference: ${reference}" 
 
 // Construct strain and isotype lists
 import groovy.json.JsonSlurper
@@ -51,24 +52,8 @@ process setup_dirs {
 
     """
         mkdir -p ${analysis_dir}
-        cp ${strain_set_file} ${analysis_dir}/${date}.strain_set.json
+        cp ${strain_set_file} ${analysis_dir}/strain_set.json
     """
-}
-
-process workflow_info {
-
-    executor 'local'
-
-    publishDir analysis_dir, mode: 'copy'
-
-    output:
-        file("workflow.txt")
-
-    """
-        echo "Git info: $workflow.repository" > workflow.txt
-        echo "Revision: $workflow.revision [$workflow.commitId]" >> workflow.txt
-    """
-
 }
 
 /*
@@ -76,6 +61,8 @@ process workflow_info {
 */
 
 process perform_alignment {
+
+    echo true
 
     cpus 4
 
@@ -90,8 +77,10 @@ process perform_alignment {
         file "${fq_pair_id}.bam.bai" into fq_cov_bam_indices
         val "${fq_pair_id}" into fq_stat_bam_val
         val "${fq_pair_id}" into fq_pair_id_idxstats
+        val "${fq_pair_id}" into fq_pair_id_concordance_val
         set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") into fq_idx_stats_bam
         set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") into fq_stat_bams
+        set SM, file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") into fq_pair_id_concordance
 
     
     """
@@ -99,6 +88,43 @@ process perform_alignment {
         sambamba view --nthreads=${cores} --sam-input --format=bam --with-header /dev/stdin | \\
         sambamba sort --nthreads=${cores} --show-progress --tmpdir=${tmpdir} --out=${fq_pair_id}.bam /dev/stdin
         sambamba index --nthreads=${cores} ${fq_pair_id}.bam
+    """
+}
+
+/* 
+    Call variants at the individual level for concordance
+*/
+
+process fq_call_variants {
+
+    tag { fq_pair_id }
+
+    publishDir analysis_dir + "/fq_pair_vcf", mode: 'copy'
+
+    input:
+        val fq_pair_id from fq_pair_id_concordance_val
+        set val(SM), file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_pair_id_concordance
+
+    output:
+        file("${SM}.${fq_pair_id}.tsv") into individual_sites
+
+    """
+    # Perform individual-level calling
+    contigs="`samtools view -H ${fq_pair_id}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
+    echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} ${fq_pair_id}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${fq_pair_id}.{}.individual.vcf.gz"
+    order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${fq_pair_id}." \$1 ".individual.vcf.gz" }'`
+    
+    # Output variant sites
+    bcftools concat \${order} -O v | vk geno het-polarization - | bcftools view -O z > ${fq_pair_id}.individual.vcf.gz
+    bcftools index ${fq_pair_id}.individual.vcf.gz
+    rm \${order}
+
+    bcftools view -M 2 -m 2 -O v ${fq_pair_id}.individual.vcf.gz | \\
+    bcftools filter --include 'DP > 3' | \\
+    grep -v "0\\/1" | \\
+    bcftools query -f '%CHROM-%POS[\\t%GT]\\n' | \\
+    awk '{ sub(/0\\/0/, "0");  sub(/1\\/1/, "1"); print }' > ${SM}.${fq_pair_id}.tsv
+
     """
 }
 
@@ -128,11 +154,11 @@ process fq_combine_idx_stats {
         val bam_idxstats from fq_idxstats_set.toSortedList()
 
     output:
-        file("${date}.fq_bam_idxstats.tsv")
+        file("fq_bam_idxstats.tsv")
 
     """
-        echo -e "SM\\treference\\treference_length\\tmapped_reads\\tunmapped_reads" > ${date}.fq_bam_idxstats.tsv
-        cat ${bam_idxstats.join(" ")} >> ${date}.fq_bam_idxstats.tsv
+        echo -e "SM\\treference\\treference_length\\tmapped_reads\\tunmapped_reads" > fq_bam_idxstats.tsv
+        cat ${bam_idxstats.join(" ")} >> fq_bam_idxstats.tsv
     """
 
 }
@@ -165,18 +191,18 @@ process combine_bam_stats {
         val stat_files from bam_stat_files.toSortedList()
 
     output:
-        file("${date}.fq_bam_stats.tsv")
+        file("fq_bam_stats.tsv")
 
     """
-        echo -e "fq_pair_id\\tvariable\\tvalue\\tcomment" > ${date}.fq_bam_stats.tsv
-        cat ${stat_files.join(" ")} >> ${date}.fq_bam_stats.tsv
+        echo -e "fq_pair_id\\tvariable\\tvalue\\tcomment" > fq_bam_stats.tsv
+        cat ${stat_files.join(" ")} >> fq_bam_stats.tsv
     """
 }
 
 /*
     Fastq coverage
 */
-process coverage_fq {
+process fq_coverage {
 
     tag { fq_pair_id }
 
@@ -194,7 +220,7 @@ process coverage_fq {
 }
 
 
-process coverage_fq_merge {
+process fq_coverage_merge {
 
     publishDir analysis_dir + "/fq", mode: 'copy'
 
@@ -202,14 +228,14 @@ process coverage_fq_merge {
         val fq_set from fq_coverage.toSortedList()
 
     output:
-        file("${date}.fq_coverage.full.tsv")
-        file("${date}.fq_coverage.tsv")
+        file("fq_coverage.full.tsv")
+        file("fq_coverage.tsv")
 
     """
-        echo -e 'bam\\tcontig\\tstart\\tend\\tproperty\\tvalue' > ${date}.fq_coverage.full.tsv
-        cat ${fq_set.join(" ")} >> ${date}.fq_coverage.full.tsv
+        echo -e 'bam\\tcontig\\tstart\\tend\\tproperty\\tvalue' > fq_coverage.full.tsv
+        cat ${fq_set.join(" ")} >> fq_coverage.full.tsv
 
-        cat <(echo -e 'fq\\tcoverage') <( cat ${date}.fq_coverage.full.tsv | grep 'genome' | grep 'depth_of_coverage' | cut -f 1,6) > ${date}.fq_coverage.tsv
+        cat <(echo -e 'fq\\tcoverage') <( cat fq_coverage.full.tsv | grep 'genome' | grep 'depth_of_coverage' | cut -f 1,6) > fq_coverage.tsv
     """
 }
 
@@ -264,10 +290,10 @@ process idx_stats_SM {
         val SM from merged_SM_idxstats
         set file("${SM}.bam"), file("${SM}.bam.bai") from bams_idxstats
     output:
-        file bam_idxstats into bam_idxstats_set
+        file 'SM_bam_idxstats' into bam_idxstats_set
 
     """
-        samtools idxstats ${SM}.bam | awk '{ print "${SM}\\t" \$0 }' > bam_idxstats
+        samtools idxstats ${SM}.bam | awk '{ print "${SM}\\t" \$0 }' > SM_bam_idxstats
     """
 }
 
@@ -279,11 +305,11 @@ process combine_idx_stats {
         val bam_idxstats from bam_idxstats_set.toSortedList()
 
     output:
-        file("${date}.bam_idxstats.tsv")
+        file("SM_bam_idxstats.tsv")
 
     """
-        echo -e "SM\\treference\\treference_length\\tmapped_reads\\tunmapped_reads" > ${date}.bam_idxstats.tsv
-        cat ${bam_idxstats.join(" ")} >> ${date}.bam_idxstats.tsv
+        echo -e "SM\\treference\\treference_length\\tmapped_reads\\tunmapped_reads" > SM_bam_idxstats.tsv
+        cat ${bam_idxstats.join(" ")} >> SM_bam_idxstats.tsv
     """
 
 }
@@ -317,11 +343,11 @@ process combine_SM_bam_stats {
         val stat_files from SM_bam_stat_files.toSortedList()
 
     output:
-        file("${date}.SM_bam_stats.tsv")
+        file("SM_bam_stats.tsv")
 
     """
-        echo -e "fq_pair_id\\tvariable\\tvalue\\tcomment" > ${date}.SM_bam_stats.tsv
-        cat ${stat_files.join(" ")} >> ${date}.SM_bam_stats.tsv
+        echo -e "fq_pair_id\\tvariable\\tvalue\\tcomment" > SM_bam_stats.tsv
+        cat ${stat_files.join(" ")} >> SM_bam_stats.tsv
     """
 }
 
@@ -335,14 +361,14 @@ process format_duplicates {
         val duplicates_set from duplicates_file.toSortedList()
 
     output:
-        file("${date}.bam_duplicates.tsv")
+        file("bam_duplicates.tsv")
 
 
     """
-        echo -e 'filename\\tlibrary\\tunpaired_reads_examined\\tread_pairs_examined\\tsecondary_or_supplementary_rds\\tunmapped_reads\\tunpaired_read_duplicates\\tread_pair_duplicates\\tread_pair_optical_duplicates\\tpercent_duplication\\testimated_library_size' > ${date}.bam_duplicates.tsv
+        echo -e 'filename\\tlibrary\\tunpaired_reads_examined\\tread_pairs_examined\\tsecondary_or_supplementary_rds\\tunmapped_reads\\tunpaired_read_duplicates\\tread_pair_duplicates\\tread_pair_optical_duplicates\\tpercent_duplication\\testimated_library_size' > bam_duplicates.tsv
         for i in ${duplicates_set.join(" ")}; do
             f=\$(basename \${i})
-            cat \${i} | awk -v f=\${f/.duplicates.txt/} 'NR >= 8 && \$0 !~ "##.*" && \$0 != ""  { print f "\\t" \$0 } NR >= 8 && \$0 ~ "##.*" { exit }'  >> ${date}.bam_duplicates.tsv
+            cat \${i} | awk -v f=\${f/.duplicates.txt/} 'NR >= 8 && \$0 !~ "##.*" && \$0 != ""  { print f "\\t" \$0 } NR >= 8 && \$0 ~ "##.*" { exit }'  >> bam_duplicates.tsv
         done;
     """
 }
@@ -351,7 +377,7 @@ process format_duplicates {
 /*
     Coverage Bam
 */
-process coverage_SM {
+process SM_coverage {
 
     tag { SM }
 
@@ -370,7 +396,7 @@ process coverage_SM {
 }
 
 
-process coverage_SM_merge {
+process SM_coverage_merge {
 
     publishDir analysis_dir + "/SM", mode: 'copy'
 
@@ -379,15 +405,15 @@ process coverage_SM_merge {
         val sm_set from SM_coverage.toSortedList()
 
     output:
-        file("${date}.SM_coverage.full.tsv")
-        file("${date}.SM_coverage.tsv")
+        file("SM_coverage.full.tsv")
+        file("SM_coverage.tsv")
 
     """
-        echo -e 'SM\\tcontig\\tstart\\tend\\tproperty\\tvalue' > ${date}.SM_coverage.full.tsv
-        cat ${sm_set.join(" ")} >> ${date}.SM_coverage.full.tsv
+        echo -e 'SM\\tcontig\\tstart\\tend\\tproperty\\tvalue' > SM_coverage.full.tsv
+        cat ${sm_set.join(" ")} >> SM_coverage.full.tsv
 
         # Generate condensed version
-        cat <(echo -e 'strain\\tcoverage') <(cat ${date}.SM_coverage.full.tsv | grep 'genome' | grep 'depth_of_coverage' | cut -f 1,6) > ${date}.SM_coverage.tsv
+        cat <(echo -e 'strain\\tcoverage') <(cat SM_coverage.full.tsv | grep 'genome' | grep 'depth_of_coverage' | cut -f 1,6) > SM_coverage.tsv
     """
 
 }
@@ -403,6 +429,8 @@ union_vcf_channel = merged_bams_union.spread(site_list)
 
 
 process call_variants_union {
+
+    echo true
 
     cpus call_variant_cpus
 
@@ -442,41 +470,73 @@ process generate_union_vcf_list {
        val vcf_set from union_vcf_set.toSortedList()
 
     output:
-       file("${date}.union_vcfs.txt") into union_vcfs
+       file("union_vcfs.txt") into union_vcfs
 
     """
-        echo ${vcf_set.join(" ")} | tr ' ' '\\n' > ${date}.union_vcfs.txt
+        echo ${vcf_set.join(" ")} | tr ' ' '\\n' > union_vcfs.txt
+    """
+}
+
+union_vcfs_in = union_vcfs.spread(contigs)
+
+process merge_union_vcf_chromosome {
+
+    tag { chrom }
+
+    input:
+        set file(union_vcfs:"union_vcfs.txt"), val(chrom) from union_vcfs_in
+
+    output:
+        val(chrom) into contigs_list_in
+        file("${chrom}.merged.raw.vcf.gz") into raw_vcf
+
+    """
+        bcftools merge --threads 10 --regions ${chrom} -O z -m all --file-list ${union_vcfs} > ${chrom}.merged.raw.vcf.gz
+        bcftools index ${chrom}.merged.raw.vcf.gz
+    """
+}
+
+// Generate a list of ordered files.
+contig_raw_vcf = contig_list*.concat(".merged.raw.vcf.gz")
+
+process concatenate_union_vcf {
+
+    input:
+        val merge_vcf from raw_vcf.toList()
+
+    output:
+        set file("merged.raw.vcf.gz"), file("merged.raw.vcf.gz.csi") into raw_vcf_concatenated
+
+    """
+        for i in ${merge_vcf.join(" ")}; do
+            ln  -s \${i} `basename \${i}`;
+        done;
+        chrom_set="";
+        bcftools concat -O z ${contig_raw_vcf.join(" ")}  > merged.raw.vcf.gz
+        bcftools index merged.raw.vcf.gz
     """
 }
 
 
-
-process merge_union_vcf {
-
-    cpus cores
+process filter_union_vcf {
 
     publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
-        val SM from union_vcf_SM.toSortedList()
-        file(union_vcfs:"union_vcfs.txt") from union_vcfs
+        set file("merged.raw.vcf.gz"), file("merged.raw.vcf.gz.csi") from raw_vcf_concatenated
 
     output:
-        file("${date}.merged.raw.vcf.gz") into raw_vcf
-        file("${date}.merged.filtered.vcf.gz") into filtered_vcf
+        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") into filtered_vcf
 
     """
-        bcftools merge --threads 24 -O z -m all --file-list ${union_vcfs} > ${date}.merged.raw.vcf.gz
-        bcftools index ${date}.merged.raw.vcf.gz
-
         min_depth=${min_depth}
-        bcftools view ${date}.merged.raw.vcf.gz | \\
+
+        bcftools view merged.raw.vcf.gz | \\
+        vk geno het-polarization - | \\
         bcftools filter -O u --threads 16 --set-GTs . --include "FORMAT/DP > \${min_depth}" | \\
-        bcftools view -O z - > ${date}.merged.filtered.vcf.gz
-        bcftools index -f ${date}.merged.filtered.vcf.gz
-
+        bcftools view -O z - > merged.filtered.vcf.gz
+        bcftools index -f merged.filtered.vcf.gz
     """
-
 }
 
 filtered_vcf.into { filtered_vcf_gtcheck; filtered_vcf_stat }
@@ -486,14 +546,14 @@ process gtcheck_tsv {
     publishDir analysis_dir + "/concordance", mode: 'copy'
 
     input:
-        file("${date}.merged.filtered.vcf.gz") from filtered_vcf_gtcheck
+        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from filtered_vcf_gtcheck
 
     output:
-        file("${date}.gtcheck.tsv") into gtcheck
+        file("SM.gtcheck.tsv") into gtcheck
 
     """
-        echo -e "discordance\\tsites\\tavg_min_depth\\ti\\tj" > ${date}.gtcheck.tsv
-        bcftools gtcheck -H -G 1 ${date}.merged.filtered.vcf.gz | egrep '^CN' | cut -f 2-6 >> ${date}.gtcheck.tsv
+        echo -e "discordance\\tsites\\tavg_min_depth\\ti\\tj" > SM.gtcheck.tsv
+        bcftools gtcheck -H -G 1 merged.filtered.vcf.gz | egrep '^CN' | cut -f 2-6 >> SM.gtcheck.tsv
     """
 
 }
@@ -504,13 +564,13 @@ process stat_tsv {
     publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
-        file("${date}.merged.filtered.vcf.gz") from filtered_vcf_stat
+        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi")  from filtered_vcf_stat
 
     output:
-        file("${date}.filtered.stats.txt")
+        file("filtered.stats.txt")
 
     """
-        bcftools stats --verbose ${date}.merged.filtered.vcf.gz > ${date}.filtered.stats.txt
+        bcftools stats --verbose merged.filtered.vcf.gz > filtered.stats.txt
     """
 
 }

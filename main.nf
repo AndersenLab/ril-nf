@@ -4,7 +4,6 @@
     Filtering configuration
 */
 min_depth = 3
-bam_dir = "/projects/b1059/data/${params.type}"
 site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
 site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
 concordance_script=Channel.fromPath("concordance.R")
@@ -137,7 +136,7 @@ process fq_SM_concordance {
     publishDir analysis_dir + "/concordance", mode: 'copy'
 
     input:
-        file("out?.tsv") from fq_individual_sites.toList()
+        file("out?.tsv") from fq_individual_sites.toSortedList()
         file(s:"script.R") from concordance_script
 
     output:
@@ -525,7 +524,7 @@ contig_raw_vcf = contig_list*.concat(".merged.raw.vcf.gz")
 process concatenate_union_vcf {
 
     input:
-        val merge_vcf from raw_vcf.toList()
+        val merge_vcf from raw_vcf.toSortedList()
 
     output:
         set file("merged.raw.vcf.gz"), file("merged.raw.vcf.gz.csi") into raw_vcf_concatenated

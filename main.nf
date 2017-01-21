@@ -33,7 +33,7 @@ import groovy.json.JsonSlurper
 def strain_set = []
 
 // Strain
-def strainFile = new File('strain_set.json')
+def strainFile = new File("{params.type}.strain_set.json")
 def strainJSON = new JsonSlurper().parseText(strainFile.text)
 
 strainJSON.each { SM, RG ->
@@ -54,7 +54,7 @@ process setup_dirs {
 
     """
         mkdir -p ${analysis_dir}
-        cp ${strain_set_file} ${analysis_dir}/strain_set.json
+        cp ${strain_set_file} ${analysis_dir}/${params.type}.strain_set.json
     """
 }
 

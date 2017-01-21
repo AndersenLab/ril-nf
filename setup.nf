@@ -26,7 +26,7 @@ process generate_sets {
         file "fq_data.json" from fq_data
 
     output:
-        file "strain_set.json" into strain_json
+        file "${params.type}.strain_set.json" into strain_json
 
     """
     #!/usr/bin/env Rscript --vanilla

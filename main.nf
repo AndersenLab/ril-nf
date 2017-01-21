@@ -43,13 +43,13 @@ strainJSON.each { SM, RG ->
 }
 
 
-strain_set_file = Channel.fromPath('${params.type}.strain_set.json')
+strain_set_file = Channel.fromPath("${params.type}.strain_set.json")
 
 process setup_dirs {
 
     executor 'local'
 
-    publishDir analysis_dir
+    publishDir analysis_dir, mode: 'copy'
 
     input:
         file("${params.type}.strain_set.json") from strain_set_file

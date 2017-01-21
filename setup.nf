@@ -66,6 +66,6 @@ process generate_sets {
        })
     }) %>% jsonlite::toJSON(., pretty = TRUE)
 
-    readr::write_lines(fstrains, "strain_set.json")
+    readr::write_lines(fstrains, "${params.type}.strain_set.json")
     """
 }

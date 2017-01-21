@@ -54,7 +54,7 @@ process setup_dirs {
 
     """
         mkdir -p ${analysis_dir}
-        cp ${strain_set_file} ${analysis_dir}/${params.type}.strain_set.json
+        cp strain_set_file ${analysis_dir}/${params.type}.strain_set.json
     """
 }
 

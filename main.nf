@@ -3,7 +3,6 @@
 /*
     Filtering configuration
 */
-min_depth = 3
 site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
 site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
 concordance_script=Channel.fromPath("concordance.R")
@@ -523,6 +522,8 @@ contig_raw_vcf = contig_list*.concat(".merged.raw.vcf.gz")
 
 process concatenate_union_vcf {
 
+    publishDir analysis_dir + "/vcf", mode: 'copy'
+
     input:
         val merge_vcf from raw_vcf.toSortedList()
 
@@ -551,17 +552,16 @@ process filter_union_vcf {
         set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") into filtered_vcf
 
     """
-        min_depth=${min_depth}
 
         bcftools view merged.raw.vcf.gz | \\
         vk geno het-polarization - | \\
-        bcftools filter -O u --threads 16 --set-GTs . --include "FORMAT/DP > \${min_depth}" | \\
+        bcftools filter --set-GTs . --exclude '((FORMAT/AD[1])/(FORMAT/DP) < 0.75 && FORMAT/GT == "1/1")' - | \\
         bcftools view -O z - > merged.filtered.vcf.gz
         bcftools index -f merged.filtered.vcf.gz
     """
 }
 
-filtered_vcf.into { filtered_vcf_gtcheck; filtered_vcf_stat; hmm_vcf; hmm_vcf_clean; hmm_vcf_out }
+filtered_vcf.into { filtered_vcf_gtcheck; filtered_vcf_stat; hmm_vcf; hmm_vcf_clean; hmm_vcf_out; vcf_tree }
 
 process gtcheck_tsv {
 
@@ -660,6 +660,8 @@ process plot_hmm {
     output:
         file("gt_hmm.png")
         file("gt_hmm.svg")
+        file("gt_hmm_sort.png")
+        file("gt_hmm_sort.svg")
 
     """
         Rscript --vanilla script.R

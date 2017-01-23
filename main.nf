@@ -250,7 +250,7 @@ process fq_coverage_merge {
 
     output:
         file("fq_coverage.full.tsv")
-        file("fq_coverage.tsv")
+        file("fq_coverage.tsv") into fq_coverage_plot
 
     """
         echo -e 'bam\\tcontig\\tstart\\tend\\tproperty\\tvalue' > fq_coverage.full.tsv
@@ -326,7 +326,7 @@ process combine_idx_stats {
         val bam_idxstats from bam_idxstats_set.toSortedList()
 
     output:
-        file("SM_bam_idxstats.tsv")
+        file("SM_bam_idxstats.tsv") into SM_bam_idxstats_plot
 
     """
         echo -e "SM\\treference\\treference_length\\tmapped_reads\\tunmapped_reads" > SM_bam_idxstats.tsv
@@ -382,8 +382,7 @@ process format_duplicates {
         val duplicates_set from duplicates_file.toSortedList()
 
     output:
-        file("bam_duplicates.tsv")
-
+        file("bam_duplicates.tsv") into bam_duplicates_plot
 
     """
         echo -e 'filename\\tlibrary\\tunpaired_reads_examined\\tread_pairs_examined\\tsecondary_or_supplementary_rds\\tunmapped_reads\\tunpaired_read_duplicates\\tread_pair_duplicates\\tread_pair_optical_duplicates\\tpercent_duplication\\testimated_library_size' > bam_duplicates.tsv
@@ -427,7 +426,7 @@ process SM_coverage_merge {
 
     output:
         file("SM_coverage.full.tsv")
-        file("SM_coverage.tsv")
+        file("SM_coverage.tsv") into SM_coverage_plot
 
     """
         echo -e 'SM\\tcontig\\tstart\\tend\\tproperty\\tvalue' > SM_coverage.full.tsv
@@ -623,6 +622,7 @@ process output_hmm_clean {
     output:
         file("gt_hmm_fill.tsv") into gt_hmm_fill
 
+
     """
         vk hmm --infill --endfill --alt=ALT merged.filtered.vcf.gz > gt_hmm_fill.tsv
     """
@@ -639,11 +639,10 @@ process output_hmm_vcf {
         set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from hmm_vcf_out
 
     output:
-        file("gt_hmm.vcf.gz") 
-        file("gt_hmm.vcf.gz.csi")
+        set file("gt_hmm.vcf.gz"), file("gt_hmm.vcf.gz.csi") into gt_hmm
 
     """
-        vk hmm --vcf-out --alt=ALT merged.filtered.vcf.gz | bcftools view -O z > gt_hmm.vcf.gz
+        vk hmm --vcf-out --all-sites --alt=ALT merged.filtered.vcf.gz | bcftools view -O z > gt_hmm.vcf.gz
         bcftools index gt_hmm.vcf.gz
     """
 
@@ -665,6 +664,47 @@ process plot_hmm {
 
     """
         Rscript --vanilla script.R
+    """
+
+}
+
+process generate_other_plot {
+
+    publishDir analysis_dir + "/plots", mode: 'copy'
+
+    input:
+        file("SM_bam_idxstats.tsv") from SM_bam_idxstats_plot
+        file("fq_coverage.tsv") from fq_coverage_plot
+        file("SM_coverage.tsv") from SM_coverage_plot
+        file("bam_duplicates.tsv") from bam_duplicates_plot
+        file("generate_plots.R") from Channel.fromPath("generate_plots.R")
+
+    output:
+        file("coverage_comparison.png")
+        file("coverage_comparison.svg")
+        file("unmapped_reads.png")
+        file("unmapped_reads.svg")
+        file("duplicates.png")
+        file("duplicates.svg")
+
+    """
+        Rscript --vanilla generate_plots.R
+    """
+}
+
+
+process output_tsv {
+
+    publishDir analysis_dir + "/hmm", mode: 'copy'
+
+    input:
+        set file("gt_hmm.vcf.gz"), file("gt_hmm.vcf.gz.csi") from gt_hmm
+
+    output:
+        file("gt_hmm.tsv")
+
+    """
+        cat <(echo -e "CHROM\tPOS\tSAMPLE\tGT\tGT_ORIG\tAD") <(bcftools query -f '[%CHROM\t%POS\t%SAMPLE\t%GT\t%GT_ORIG\t%AD\n]' gt_hmm.vcf.gz | sed 's/0\\/0/0/g' | sed 's/1\\/1/1/g') > gt_hmm.tsv
     """
 
 }

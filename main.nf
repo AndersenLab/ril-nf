@@ -178,7 +178,7 @@ process fq_combine_idx_stats {
         file("fq_bam_idxstats.tsv")
 
     """
-        echo -e "SM\\treference\\treference_length\\tmapped_reads\\tunmapped_reads" > fq_bam_idxstats.tsv
+        echo -e "fq_pair_id\\treference\\treference_length\\tmapped_reads\\tunmapped_reads" > fq_bam_idxstats.tsv
         cat ${bam_idxstats.join(" ")} >> fq_bam_idxstats.tsv
     """
 
@@ -604,10 +604,10 @@ process output_hmm {
         set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from hmm_vcf
 
     output:
-        file("gt_hmm.tsv")
+        file("gt_hmm_segments.tsv")
 
     """
-        vk hmm --alt=ALT merged.filtered.vcf.gz > gt_hmm.tsv
+        vk hmm --alt=ALT merged.filtered.vcf.gz > gt_hmm_segments.tsv
     """
 
 }
@@ -641,7 +641,8 @@ process output_hmm_vcf {
     output:
         set file("gt_hmm.vcf.gz"), file("gt_hmm.vcf.gz.csi") into gt_hmm
 
-    """
+    """ 
+        # OUT!
         vk hmm --vcf-out --all-sites --alt=ALT merged.filtered.vcf.gz | bcftools view -O z > gt_hmm.vcf.gz
         bcftools index gt_hmm.vcf.gz
     """
@@ -650,7 +651,7 @@ process output_hmm_vcf {
 
 process plot_hmm {
 
-    publishDir analysis_dir + "/hmm", mode: 'copy'
+    publishDir analysis_dir + "/plots", mode: 'copy'
 
     input:
         file("gt_hmm_fill.tsv") from gt_hmm_fill
@@ -701,14 +702,29 @@ process output_tsv {
         set file("gt_hmm.vcf.gz"), file("gt_hmm.vcf.gz.csi") from gt_hmm
 
     output:
-        file("gt_hmm.tsv")
+        file("gt_hmm.tsv.gz") into gt_hmm_tsv
 
     """
-        cat <(echo -e "CHROM\tPOS\tSAMPLE\tGT\tGT_ORIG\tAD") <(bcftools query -f '[%CHROM\t%POS\t%SAMPLE\t%GT\t%GT_ORIG\t%AD\n]' gt_hmm.vcf.gz | sed 's/0\\/0/0/g' | sed 's/1\\/1/1/g') > gt_hmm.tsv
+        cat <(echo -e "CHROM\tPOS\tSAMPLE\tGT\tGT_ORIG") <(bcftools query -f '[%CHROM\t%POS\t%SAMPLE\t%GT\t%GT_ORIG\n]' gt_hmm.vcf.gz | sed 's/0\\/0/0/g' | sed 's/1\\/1/1/g' | sed 's/\\.\\/\\.//g' | sed 's/\\.//g') | gzip > gt_hmm.tsv.gz
     """
 
 }
 
+
+process generate_Rdata {
+
+    publishDir analysis_dir + "/hmm", mode: 'copy'
+
+    input:
+        file("gt_hmm.tsv.gz") from gt_hmm_tsv
+        file("script.R") from Channel.fromPath('gt_hmm_convert.R')
+    output:
+        file("gt_hmm.Rdata")
+
+    """
+    Rscript --vanilla script.R
+    """
+}
 
 workflow.onComplete {
     def subject = 'RIL Workflow'

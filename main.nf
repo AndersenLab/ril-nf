@@ -5,16 +5,16 @@
 */
 site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
 site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
-concordance_script=Channel.fromPath("concordance.R")
 hmm_plot_script=Channel.fromPath("plot_hmm.R")
 
 /*
     Set these parameters in nextflow.config
 */
+date = new Date().format( 'yyyy-MM-dd' )
 tmpdir = config.tmpdir
 reference = config.reference
 cores = config.cores
-analysis_dir = config.analysis_root + "/${params.type}-analysis"
+analysis_dir = config.analysis_dir
 bam_dir = config.bam_dir
 call_variant_cpus = config.call_variant_cpus
 
@@ -31,7 +31,7 @@ import groovy.json.JsonSlurper
 def strain_set = []
 
 // Strain
-def strainFile = new File("${params.type}.strain_set.json")
+def strainFile = new File("RIL.strain_set.json")
 def strainJSON = new JsonSlurper().parseText(strainFile.text)
 
 strainJSON.each { SM, RG ->
@@ -41,7 +41,7 @@ strainJSON.each { SM, RG ->
 }
 
 
-strain_set_file = Channel.fromPath("${params.type}.strain_set.json")
+strain_set_file = Channel.fromPath("RIL.strain_set.json")
 
 process setup_dirs {
 
@@ -50,10 +50,10 @@ process setup_dirs {
     publishDir analysis_dir, mode: 'copy'
 
     input:
-        file("${params.type}.strain_set.json") from strain_set_file
+        file("RIL.strain_set.json") from strain_set_file
 
     output:
-        file("${params.type}.strain_set.json")
+        file("RIL.strain_set.json")
 
     """
         mkdir -p ${analysis_dir}
@@ -136,7 +136,7 @@ process fq_SM_concordance {
 
     input:
         file("out?.tsv") from fq_individual_sites.toSortedList()
-        file(s:"script.R") from concordance_script
+        file(s:"script.R") from Channel.fromPath("concordance.R")
 
     output:
         file("fq_concordance.svg")
@@ -548,15 +548,15 @@ process filter_union_vcf {
         set file("merged.raw.vcf.gz"), file("merged.raw.vcf.gz.csi") from raw_vcf_concatenated
 
     output:
-        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") into filtered_vcf
+        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") into filtered_vcf
 
     """
 
         bcftools view merged.raw.vcf.gz | \\
         vk geno het-polarization - | \\
         bcftools filter --set-GTs . --exclude '((FORMAT/AD[1])/(FORMAT/DP) < 0.75 && FORMAT/GT == "1/1")' - | \\
-        bcftools view -O z - > merged.filtered.vcf.gz
-        bcftools index -f merged.filtered.vcf.gz
+        bcftools view -O z - > RIL.${date}.vcf.gz
+        bcftools index -f RIL.${date}.vcf.gz
     """
 }
 
@@ -567,14 +567,14 @@ process gtcheck_tsv {
     publishDir analysis_dir + "/concordance", mode: 'copy'
 
     input:
-        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from filtered_vcf_gtcheck
+        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") from filtered_vcf_gtcheck
 
     output:
         file("SM.gtcheck.tsv") into gtcheck
 
     """
         echo -e "discordance\\tsites\\tavg_min_depth\\ti\\tj" > SM.gtcheck.tsv
-        bcftools gtcheck -H -G 1 merged.filtered.vcf.gz | egrep '^CN' | cut -f 2-6 >> SM.gtcheck.tsv
+        bcftools gtcheck -H -G 1 RIL.${date}.vcf.gz | egrep '^CN' | cut -f 2-6 >> SM.gtcheck.tsv
     """
 
 }
@@ -585,13 +585,13 @@ process stat_tsv {
     publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
-        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi")  from filtered_vcf_stat
+        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi")  from filtered_vcf_stat
 
     output:
         file("filtered.stats.txt")
 
     """
-        bcftools stats --verbose merged.filtered.vcf.gz > filtered.stats.txt
+        bcftools stats --verbose RIL.${date}.vcf.gz > filtered.stats.txt
     """
 
 }
@@ -601,13 +601,13 @@ process output_hmm {
     publishDir analysis_dir + "/hmm", mode: 'copy'
 
     input:
-        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from hmm_vcf
+        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") from hmm_vcf
 
     output:
         file("gt_hmm.tsv")
 
     """
-        vk hmm --alt=ALT merged.filtered.vcf.gz > gt_hmm.tsv
+        vk hmm --alt=ALT RIL.${date}.vcf.gz > gt_hmm.tsv
     """
 
 }
@@ -617,14 +617,14 @@ process output_hmm_clean {
     publishDir analysis_dir + "/hmm", mode: 'copy'
 
     input:
-        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from hmm_vcf_clean
+        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") from hmm_vcf_clean
 
     output:
         file("gt_hmm_fill.tsv") into gt_hmm_fill
 
 
     """
-        vk hmm --infill --endfill --alt=ALT merged.filtered.vcf.gz > gt_hmm_fill.tsv
+        vk hmm --infill --endfill --alt=ALT RIL.${date}.vcf.gz > gt_hmm_fill.tsv
     """
 
 }
@@ -636,14 +636,14 @@ process output_hmm_vcf {
     publishDir analysis_dir + "/hmm", mode: 'copy'
 
     input:
-        set file("merged.filtered.vcf.gz"), file("merged.filtered.vcf.gz.csi") from hmm_vcf_out
+        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") from hmm_vcf_out
 
     output:
-        set file("gt_hmm.vcf.gz"), file("gt_hmm.vcf.gz.csi") into gt_hmm
+        set file("RIL_hmm.${date}.vcf.gz"), file("RIL_hmm.${date}.vcf.gz.csi") into gt_hmm
 
     """
-        vk hmm --vcf-out --all-sites --alt=ALT merged.filtered.vcf.gz | bcftools view -O z > gt_hmm.vcf.gz
-        bcftools index gt_hmm.vcf.gz
+        vk hmm --vcf-out --all-sites --alt=ALT RIL.${date}.vcf.gz | bcftools view -O z > RIL_hmm.${date}.vcf.gz
+        bcftools index RIL_hmm.${date}.vcf.gz
     """
 
 }
@@ -659,8 +659,6 @@ process plot_hmm {
     output:
         file("gt_hmm.png")
         file("gt_hmm.svg")
-        file("gt_hmm_sort.png")
-        file("gt_hmm_sort.svg")
 
     """
         Rscript --vanilla script.R
@@ -707,24 +705,4 @@ process output_tsv {
         cat <(echo -e "CHROM\tPOS\tSAMPLE\tGT\tGT_ORIG\tAD") <(bcftools query -f '[%CHROM\t%POS\t%SAMPLE\t%GT\t%GT_ORIG\t%AD\n]' gt_hmm.vcf.gz | sed 's/0\\/0/0/g' | sed 's/1\\/1/1/g') > gt_hmm.tsv
     """
 
-}
-
-
-workflow.onComplete {
-    def subject = 'RIL Workflow'
-    def recipient = config.email
-
-    ['mail', '-s', subject, recipient].execute() << """
-
-    RIL Pipeline complete
-    ---------------------------
-    Completed at: ${workflow.complete}
-    Duration    : ${workflow.duration}
-    Success     : ${workflow.success}
-    workDir     : ${workflow.workDir}
-    exit status : ${workflow.exitStatus}
-    Error report: ${workflow.errorReport ?: '-'}
-    profile: ${workflow.profile}
-    Analysis Directory: ${analysis_dir}
-    """
 }

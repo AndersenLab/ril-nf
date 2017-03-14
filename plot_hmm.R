@@ -23,33 +23,3 @@ ggplot(df,  aes(xmin = start, xmax = end, ymin = index, ymax = index + 1, fill =
 
 ggsave("gt_hmm.svg", height = 28, width = 10)
 ggsave("gt_hmm.png", height = 28, width = 10)
-
-df <- df %>% 
-  dplyr::group_by(sample) %>% 
-  dplyr::mutate(p = ifelse(gt == "N2", end - start, 0),
-                s = sum(p),
-                content = s/1E8) %>% 
-  dplyr::arrange(content) %>%
-  dplyr::select(sample, content) %>%
-  dplyr::distinct(.keep_all = T) %>%
-  dplyr::ungroup(sample) %>%
-  dplyr::mutate(n = row_number()) %>%
-  dplyr::left_join(df) %>%
-  dplyr::mutate(index = n)
-
-
-strain_index <- df$sample
-names(strain_index) <- df$index + 0.5
-
-ggplot(df,  aes(xmin = start, xmax = end, ymin = index, ymax = index + 1, fill = gt)) +
-  geom_rect(aes(alpha = low_sites)) +
-  scale_alpha_discrete(range = c(1.0, 0.65)) +
-  scale_fill_manual(values = c("#0080FF","#FF8000")) +
-  facet_grid(.~chrom, scales="free", space="free") +
-  scale_x_continuous(labels = function(x) { x/1e6 }, expand = c(0,0)) +
-  scale_y_continuous(breaks = unique(df$index) + 0.5, labels = function(x) { strain_index[as.character(x)] }, expand = c(0,0)) + 
-  theme(strip.background = element_blank(),
-        legend.position = "None")
-
-ggsave("gt_hmm_sort.svg", height = 28, width = 10)
-ggsave("gt_hmm_sort.png", height = 28, width = 10)

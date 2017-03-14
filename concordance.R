@@ -49,7 +49,7 @@ df <- dplyr::left_join(df, df_complete, by = c("f1", "f2")) %>%
       dplyr::select(-ff)
 
 ggplot(df) +
-  geom_histogram(aes(x=concordance, fill = same_SM), binwidth = 0.0025) +
+  geom_histogram(aes(x=concordance, fill = same_SM), binwidth = 0.000025) +
   scale_fill_manual(values = c("#808080", "#0080FF")) +
   labs(x = "Concordance", y = "Number of Comparisons") +
   theme(axis.title = ggplot2::element_text(size=14, face="bold", color="black", vjust=5))

@@ -1,18 +1,16 @@
 #!/usr/bin/env nextflow
 
-println params.type
-
 process dump_json {
 
     executor 'local'
 
-    publishDir "."
+    publishDir ".", mode: 'copy'
 
     output:
         file "fq_data.json" into fq_data
 
     """
-        fq query 'strain_type = ${params.type}, use = True' > fq_data.json
+        fq query 'strain_type = "RIL", use = True' > fq_data.json
     """
 }
 
@@ -20,18 +18,20 @@ process generate_sets {
 
     // Remember to add module for R module 'R/3.3.1'
 
+    executor 'local'
+
     publishDir ".", mode: 'copy'
 
     input:
         file "fq_data.json" from fq_data
 
     output:
-        file "${params.type}.strain_set.json" into strain_json
+        file "RIL.strain_set.json" into strain_json
 
-    """
+    '''
     #!/usr/bin/env Rscript --vanilla
     
-    library(dplyr)
+    library(tidyverse)
     longest_string <- function(s){return(s[which.max(nchar(s))])}
     lcsbstr <- function(a,b) { 
         matches <- gregexpr("M+", drop(attr(adist(a, b, counts=TRUE), "trafos")))[[1]];
@@ -44,28 +44,30 @@ process generate_sets {
     }
 
     fq <- jsonlite::fromJSON("fq_data.json") %>%
-      dplyr::filter(strain_type == "${params.type}") %>%
-      dplyr::filter(grepl("b1059", filename)) %>%
-      dplyr::filter(grepl("processed", filename)) %>%
-      dplyr::mutate(library = barcode) %>%
+      dplyr::filter(strain_type == "RIL") %>%
       dplyr::select(strain, library, seq_folder, filename) %>%
       tidyr::unnest(filename) %>%
-      dplyr::filter(grepl("1P.fq.gz", filename)) %>%
+      dplyr::distinct() %>%
+      dplyr::filter(!grepl("_R2_", filename), !grepl("2P.fq.gz", filename)) %>%
+      dplyr::filter(grepl("b1059", filename)) %>%
+      dplyr::filter(grepl("processed", filename)) %>%
       dplyr::mutate(basename = basename(filename)) %>%
       dplyr::mutate(ID = paste0(seq_folder, "____", gsub("1P.fq.gz", "", basename))) %>%
       dplyr::mutate(LB = library, SM = strain) %>%
-      dplyr::mutate(RG = paste0("@RG\\tID:", ID, "\\tLB:", LB, "\\tSM:", SM))
+      dplyr::mutate(RG = paste0("@RG\\tID:", ID, "\\tLB:", LB, "\\tSM:", SM)) %>%
+      dplyr::tbl_df()
 
     # Generate strain and isotype concordance sets
-    fstrains <- lapply(split(fq, fq\$strain), function(i) {
-        lapply(split(i, i\$RG), function(x) {
-            f1 <- x\$filename
+    fstrains <- lapply(split(fq, fq$strain), function(i) {
+        lapply(split(i, i$RG), function(x) {
+            f1 <- x$filename
             f2 <- gsub("1P.fq.gz", "2P.fq.gz", f1)
+            f2 <- gsub("_R1_", "_R2_", f2)
             set_id <- lcsbstr(basename(f1), basename(f2))
        c(f1, f2, set_id)
        })
     }) %>% jsonlite::toJSON(., pretty = TRUE)
 
-    readr::write_lines(fstrains, "${params.type}.strain_set.json")
-    """
+    readr::write_lines(fstrains, "RIL.strain_set.json")
+    '''
 }

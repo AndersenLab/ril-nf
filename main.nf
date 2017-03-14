@@ -105,7 +105,7 @@ process fq_call_variants {
 
     input:
         val fq_pair_id from fq_pair_id_concordance_val
-        set val(SM), file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_pair_id_concordance
+        set val(fq_pair_id), file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_pair_id_concordance
 
     output:
         file("out.tsv") into fq_individual_sites

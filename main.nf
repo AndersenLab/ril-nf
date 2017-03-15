@@ -28,20 +28,10 @@ println "Using Reference: ${reference}"
 // Construct strain and isotype lists
 import groovy.json.JsonSlurper
 
-def strain_set = []
+strainFile = new File("fq_ril_sheet.tsv")
+fqs = Channel.from(strainFile.collect { it.tokenize( '\t' ) })
 
-// Strain
-def strainFile = new File("RIL.strain_set.json")
-def strainJSON = new JsonSlurper().parseText(strainFile.text)
-
-strainJSON.each { SM, RG ->
-    RG.each { k, v ->
-        strain_set << [SM, k, v[0], v[1], v[2]]
-    }
-}
-
-
-strain_set_file = Channel.fromPath("RIL.strain_set.json")
+strain_set_file = Channel.fromPath("fq_ril_sheet.tsv")
 
 process setup_dirs {
 
@@ -73,27 +63,24 @@ process perform_alignment {
     tag { fq_pair_id }
 
     input:
-        set SM, RG, fq1, fq2, fq_pair_id from strain_set
+        set SM, ID, LB, fq1, fq2 from fqs
     output:
-        set SM, file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") into sample_aligned_bams
-        val "${fq_pair_id}" into fq_pair_id_cov
-        file "${fq_pair_id}.bam" into fq_cov_bam
-        file "${fq_pair_id}.bam.bai" into fq_cov_bam_indices
-        val "${fq_pair_id}" into fq_stat_bam_val
-        val "${fq_pair_id}" into fq_pair_id_idxstats
-        val "${fq_pair_id}" into fq_pair_id_concordance_val
-        set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") into fq_idx_stats_bam
-        set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") into fq_stat_bams
-        set SM, file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") into fq_pair_id_concordance
-
+        set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") into sample_aligned_bams
     
     """
-        bwa mem -t ${cores} -R '${RG}' ${reference} ${fq1} ${fq2} | \\
+        bwa mem -t ${cores} -R '@RG\tID:${ID}\tLB:${LB}\tSM:${SM}' ${reference} ${fq1} ${fq2} | \\
         sambamba view --nthreads=${cores} --sam-input --format=bam --with-header /dev/stdin | \\
-        sambamba sort --nthreads=${cores} --show-progress --tmpdir=${tmpdir} --out=${fq_pair_id}.bam /dev/stdin
-        sambamba index --nthreads=${cores} ${fq_pair_id}.bam
+        sambamba sort --nthreads=${cores} --show-progress --tmpdir=${tmpdir} --out=${ID}.bam /dev/stdin
+        sambamba index --nthreads=${cores} ${ID}.bam
     """
 }
+
+sample_aligned_bams.into { 
+                           sample_bams_concordance;
+                           sample_bams_fq_idx_stats;
+                           fq_stat_bams;
+                           fq_cov_bam_indices; 
+                         }
 
 /* 
     Call variants at the individual level for concordance
@@ -101,31 +88,30 @@ process perform_alignment {
 
 process fq_call_variants {
 
-    tag { fq_pair_id }
+    tag { ID }
 
     input:
-        val fq_pair_id from fq_pair_id_concordance_val
-        set val(fq_pair_id), file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_pair_id_concordance
+        set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") from sample_bams_concordance
 
     output:
         file("out.tsv") into fq_individual_sites
 
     """
     # Perform individual-level calling
-    contigs="`samtools view -H ${fq_pair_id}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
-    echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} ${fq_pair_id}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${fq_pair_id}.{}.individual.vcf.gz"
+    contigs="`samtools view -H ${ID}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
+    echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} ${ID}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${ID}.{}.individual.vcf.gz"
     order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${fq_pair_id}." \$1 ".individual.vcf.gz" }'`
     
     # Output variant sites
     bcftools concat \${order} -O v | vk geno het-polarization - | bcftools view -O z > ${fq_pair_id}.individual.vcf.gz
-    bcftools index ${fq_pair_id}.individual.vcf.gz
+    bcftools index ${ID}.individual.vcf.gz
     rm \${order}
 
-    bcftools view -M 2 -m 2 -O v ${fq_pair_id}.individual.vcf.gz | \\
+    bcftools view -M 2 -m 2 -O v ${ID}.individual.vcf.gz | \\
     bcftools filter --include 'DP > 3' | \\
     grep -v "0\\/1" | \\
     bcftools query -f '%CHROM-%POS[\\t%GT]\\n' | \\
-    awk '{ sub(/0\\/0/, "0");  sub(/1\\/1/, "1"); print "${SM}.${fq_pair_id}\\t" \$0 }' > out.tsv
+    awk '{ sub(/0\\/0/, "0");  sub(/1\\/1/, "1"); print "${SM}.${ID}\\t" \$0 }' > out.tsv
 
     """
 }
@@ -156,14 +142,15 @@ process fq_SM_concordance {
 
 process fq_idx_stats {
     
+    tag { ID }
+
     input:
-        val fq_pair_id from fq_pair_id_idxstats
-        set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_idx_stats_bam
+        set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") from sample_bams_fq_idx_stats
     output:
-        file fq_idxstats into fq_idxstats_set
+        file 'fq_idxstats' into fq_idxstats_set
 
     """
-        samtools idxstats ${fq_pair_id}.bam | awk '{ print "${fq_pair_id}\\t" \$0 }' > fq_idxstats
+        samtools idxstats ${ID}.bam | awk '{ print "${ID}\\t" \$0 }' > fq_idxstats
     """
 }
 
@@ -193,14 +180,13 @@ process fq_bam_stats {
     tag { fq_pair_id }
 
     input:
-        val fq_pair_id from fq_stat_bam_val
-        set file("${fq_pair_id}.bam"), file("${fq_pair_id}.bam.bai") from fq_stat_bams
+        set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") from fq_stat_bams
 
     output:
         file 'bam_stat' into bam_stat_files
 
     """
-        cat <(samtools stats ${fq_pair_id}.bam | grep ^SN | cut -f 2- | awk '{ print "${fq_pair_id}\t" \$0 }' | sed 's/://g') > bam_stat
+        cat <(samtools stats ${ID}.bam | grep ^SN | cut -f 2- | awk '{ print "${ID}\t" \$0 }' | sed 's/://g') > bam_stat
     """
 }
 
@@ -228,9 +214,7 @@ process fq_coverage {
     tag { fq_pair_id }
 
     input:
-        val fq_pair_id from fq_pair_id_cov
-        file("${fq_pair_id}.bam") from fq_cov_bam
-        file("${fq_pair_id}.bam.bai") from fq_cov_bam_indices
+        set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") from fq_cov_bam_indices
     output:
         file("${fq_pair_id}.coverage.tsv") into fq_coverage
 
@@ -273,15 +257,7 @@ process merge_bam {
         set SM, bam, index from sample_aligned_bams.groupTuple()
 
     output:
-        val SM into merged_SM_coverage
-        val SM into merged_SM_individual
-        val SM into merged_SM_union
-        val SM into merged_SM_idxstats
-        val SM into merged_SM_bamstats
-        set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_for_coverage
-        set file("${SM}.bam"), file("${SM}.bam.bai") into merged_bams_union
-        set file("${SM}.bam"), file("${SM}.bam.bai") into bams_idxstats
-        set file("${SM}.bam"), file("${SM}.bam.bai") into bams_stats
+        val SM, file("${SM}.bam"), file("${SM}.bam.bai") into merged_SM
         file("${SM}.duplicates.txt") into duplicates_file
 
     """
@@ -301,6 +277,12 @@ process merge_bam {
     """
 }
 
+merged_SM.into { 
+                bams_stats;
+                bams_idxstats;
+                merged_bams_for_coverage;
+                merged_bams_union;
+                }
 /*
  SM idx stats
 */
@@ -308,8 +290,7 @@ process merge_bam {
 process idx_stats_SM {
     
     input:
-        val SM from merged_SM_idxstats
-        set file("${SM}.bam"), file("${SM}.bam.bai") from bams_idxstats
+        set SM, file("${SM}.bam"), file("${SM}.bam.bai") from bams_idxstats
     output:
         file 'SM_bam_idxstats' into bam_idxstats_set
 
@@ -345,8 +326,7 @@ process SM_bam_stats {
     tag { SM }
 
     input:
-        val SM from merged_SM_bamstats
-        set file("${SM}.bam"), file("${SM}.bam.bai") from bams_stats
+        set SM, file("${SM}.bam"), file("${SM}.bam.bai") from bams_stats
 
     output:
         file 'bam_stat' into SM_bam_stat_files
@@ -402,13 +382,10 @@ process SM_coverage {
     tag { SM }
 
     input:
-        val SM from merged_SM_coverage
-        set file("${SM}.bam"), file("${SM}.bam.bai") from merged_bams_for_coverage
+        set SM, file("${SM}.bam"), file("${SM}.bam.bai") from merged_bams_for_coverage
 
     output:
-        val SM into SM_coverage_sample
         file("${SM}.coverage.tsv") into SM_coverage
-
 
     """
         bam coverage ${SM}.bam > ${SM}.coverage.tsv
@@ -457,8 +434,7 @@ process call_variants_union {
     tag { SM }
 
     input:
-        val SM from merged_SM_union
-        set file("${SM}.bam"), file("${SM}.bam.bai"), file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from union_vcf_channel
+        set SM, file("${SM}.bam"), file("${SM}.bam.bai"), file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from union_vcf_channel
 
     output:
         val SM into union_vcf_SM

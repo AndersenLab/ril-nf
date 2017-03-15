@@ -60,7 +60,7 @@ process perform_alignment {
 
     cpus 4
 
-    tag { fq_pair_id }
+    tag { ID }
 
     input:
         set SM, ID, LB, fq1, fq2 from fqs
@@ -101,10 +101,10 @@ process fq_call_variants {
     # Perform individual-level calling
     contigs="`samtools view -H ${ID}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
     echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} ${ID}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${ID}.{}.individual.vcf.gz"
-    order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${fq_pair_id}." \$1 ".individual.vcf.gz" }'`
+    order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${ID}." \$1 ".individual.vcf.gz" }'`
     
     # Output variant sites
-    bcftools concat \${order} -O v | vk geno het-polarization - | bcftools view -O z > ${fq_pair_id}.individual.vcf.gz
+    bcftools concat \${order} -O v | vk geno het-polarization - | bcftools view -O z > ${ID}.individual.vcf.gz
     bcftools index ${ID}.individual.vcf.gz
     rm \${order}
 
@@ -178,7 +178,7 @@ process fq_combine_idx_stats {
 
 process fq_bam_stats {
 
-    tag { fq_pair_id }
+    tag { ID }
 
     input:
         set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") from fq_stat_bams
@@ -212,16 +212,16 @@ process combine_bam_stats {
 */
 process fq_coverage {
 
-    tag { fq_pair_id }
+    tag { ID }
 
     input:
         set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") from fq_cov_bam_indices
     output:
-        file("${fq_pair_id}.coverage.tsv") into fq_coverage
+        file("${ID}.coverage.tsv") into fq_coverage
 
 
     """
-        bam coverage ${fq_pair_id}.bam > ${fq_pair_id}.coverage.tsv
+        bam coverage ${ID}.bam > ${ID}.coverage.tsv
     """
 }
 

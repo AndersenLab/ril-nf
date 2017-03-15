@@ -65,7 +65,8 @@ process perform_alignment {
     input:
         set SM, ID, LB, fq1, fq2 from fqs
     output:
-        set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") into sample_aligned_bams
+        set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") into aligned_bams
+        set SM, file("${ID}.bam") into sample_aligned_bams
     
     """
         bwa mem -t ${cores} -R '@RG\tID:${ID}\tLB:${LB}\tSM:${SM}' ${reference} ${fq1} ${fq2} | \\
@@ -75,7 +76,7 @@ process perform_alignment {
     """
 }
 
-sample_aligned_bams.into { 
+aligned_bams.into { 
                            sample_bams_concordance;
                            sample_bams_fq_idx_stats;
                            fq_stat_bams;
@@ -254,7 +255,7 @@ process merge_bam {
     tag { SM }
 
     input:
-        set SM, bam, index from sample_aligned_bams.groupTuple()
+        set SM, bam from sample_aligned_bams.groupTuple()
 
     output:
         val SM, file("${SM}.bam"), file("${SM}.bam.bai") into merged_SM

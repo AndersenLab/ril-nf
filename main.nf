@@ -258,7 +258,7 @@ process merge_bam {
         set SM, bam from sample_aligned_bams.groupTuple()
 
     output:
-        val SM, file("${SM}.bam"), file("${SM}.bam.bai") into merged_SM
+        set val(SM), file("${SM}.bam"), file("${SM}.bam.bai") into merged_SM
         file("${SM}.duplicates.txt") into duplicates_file
 
     """

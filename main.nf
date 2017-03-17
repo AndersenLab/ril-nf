@@ -245,7 +245,7 @@ process fq_concordance {
     tag { SM }
 
     input:
-        set val(SM), file("${SM}.bam"), file("${SM}.bam.bai") from fq_concordance_bams
+        set val(SM), file("input.bam"), file("input.bam.bai") from fq_concordance_bams
 
     output:
         file('out.tsv') into fq_concordance_out

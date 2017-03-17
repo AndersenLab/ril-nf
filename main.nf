@@ -77,65 +77,10 @@ process perform_alignment {
 }
 
 aligned_bams.into { 
-                           sample_bams_concordance;
                            sample_bams_fq_idx_stats;
                            fq_stat_bams;
                            fq_cov_bam_indices; 
                          }
-
-/* 
-    Call variants at the individual level for concordance
-*/
-
-process fq_call_variants {
-
-    tag { ID }
-
-    input:
-        set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") from sample_bams_concordance
-
-    output:
-        file("out.tsv") into fq_individual_sites
-
-    """
-    # Perform individual-level calling
-    contigs="`samtools view -H ${ID}.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40`"
-    echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${cores} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} ${ID}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O z  -  > ${ID}.{}.individual.vcf.gz"
-    order=`echo \${contigs} | tr ' ' '\\n' | awk '{ print "${ID}." \$1 ".individual.vcf.gz" }'`
-    
-    # Output variant sites
-    bcftools concat \${order} -O v | vk geno het-polarization - | bcftools view -O z > ${ID}.individual.vcf.gz
-    bcftools index ${ID}.individual.vcf.gz
-    rm \${order}
-
-    bcftools view -M 2 -m 2 -O v ${ID}.individual.vcf.gz | \\
-    bcftools filter --include 'DP > 3' | \\
-    grep -v "0\\/1" | \\
-    bcftools query -f '%CHROM-%POS[\\t%GT]\\n' | \\
-    awk '{ sub(/0\\/0/, "0");  sub(/1\\/1/, "1"); print "${SM}.${ID}\\t" \$0 }' > out.tsv
-
-    """
-}
-
-process fq_SM_concordance {
-
-    publishDir analysis_dir + "/concordance", mode: 'copy'
-
-    input:
-        file("out?.tsv") from fq_individual_sites.toSortedList()
-        file(s:"script.R") from Channel.fromPath("concordance.R")
-
-    output:
-        file("fq_concordance.svg")
-        file("fq_concordance.png")
-        file("fq_concordance.tsv")
-
-    """
-        Rscript --vanilla ${s} 
-    """
-        
-}
-
 
 /*
     fq idx stats
@@ -283,7 +228,78 @@ merged_SM.into {
                 bams_idxstats;
                 merged_bams_for_coverage;
                 merged_bams_union;
+                fq_concordance_bams;
                 }
+
+
+/* 
+    Call variants at the individual level for concordance
+*/
+
+fq_concordance_script = file("fq_concordance.R")
+
+process fq_concordance {
+
+    cpus call_variant_cpus
+
+    tag { SM }
+
+    input:
+        set val(SM), file("${SM}.bam"), file("${SM}.bam.bai") from fq_concordance_bams
+
+    output:
+        file('out.tsv') into fq_concordance_out
+
+    """
+        # Split bam file into individual read groups; Ignore MtDNA
+        contigs="`samtools view -H input.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40 | grep -v 'MtDNA' | tr ' ' '\\n'`"
+        samtools split -f '%!.%.' input.bam
+        # DO NOT INDEX ORIGINAL BAM; ELIMINATES CACHE!
+        bam_list="`ls -1 *.bam | grep -v 'input.bam'`"
+
+        ls -1 *.bam | grep -v 'input.bam' | xargs --verbose -I {} -P ${call_variant_cpus} sh -c "samtools index {}"
+
+        # Generate a site list for the set of fastqs
+        rg_list="`samtools view -H input.bam | grep '@RG.*ID:' | cut -f 2 | sed  's/ID://'`"
+        # Perform individual-level calling
+        for rg in \$rg_list; do
+            echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${call_variant_cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} \${rg}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O v | bcftools query -f '%CHROM\\t%POS\\n' >> {}.\${rg}.site_list.tsv"
+        done;
+        
+        # Call a union set of variants
+        for rg in \$rg_list; do
+            echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${call_variant_cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} \${rg}.bam | bcftools call -T site_list.srt.tsv.gz --skip-variants indels --multiallelic-caller -O z > {}.\${rg}.vcf.gz"
+            order=`echo \${contigs} | tr ' ' '\\n' | awk -v rg=\${rg} '{ print \$1 "." rg ".vcf.gz" }'`
+            # Output variant sites
+            bcftools concat \${order} -O v | \\
+            vk geno het-polarization - | \\
+            bcftools query -f '%CHROM\\t%POS[\\t%GT\\t${SM}\\n]' | grep -v '0/1' | awk -v rg=\${rg} '{ print \$0 "\\t" rg }' > \${rg}.rg_gt.tsv
+        done;
+        cat *.rg_gt.tsv > rg_gt.tsv
+        touch out.tsv
+        Rscript --vanilla ${fq_concordance_script} 
+    """
+}
+
+process combine_fq_concordance {
+
+    publishDir analysis_dir + "/concordance", mode: 'copy', overwrite: true
+
+    input:
+        file("out*.tsv") from fq_concordance_out.toSortedList()
+
+    output:
+        file("fq_concordance.tsv")
+
+    """
+        cat <(echo 'a\tb\tconcordant_sites\ttotal_sites\tconcordance\tSM') out*.tsv > fq_concordance.tsv
+    """
+
+
+}
+
+
+
 /*
  SM idx stats
 */

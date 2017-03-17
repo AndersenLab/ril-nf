@@ -265,6 +265,8 @@ process fq_concordance {
         for rg in \$rg_list; do
             echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${call_variant_cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} \${rg}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O v | bcftools query -f '%CHROM\\t%POS\\n' >> {}.\${rg}.site_list.tsv"
         done;
+        cat *.site_list.tsv  | sort --temporary-directory=${tmpdir} -k1,1 -k2,2n | uniq > site_list.srt.tsv
+        bgzip site_list.srt.tsv -c > site_list.srt.tsv.gz && tabix -s1 -b2 -e2 site_list.srt.tsv.gz
         
         # Call a union set of variants
         for rg in \$rg_list; do

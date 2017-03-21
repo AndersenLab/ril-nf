@@ -40,13 +40,12 @@ process setup_dirs {
     publishDir analysis_dir, mode: 'copy'
 
     input:
-        file("RIL.strain_set.json") from strain_set_file
+        file("fq_ril_sheet.tsv") from Channel.fromPath("fq_ril_sheet.tsv")
 
     output:
-        file("RIL.strain_set.json")
+        file("fq_ril_sheet.tsv")
 
     """
-        mkdir -p ${analysis_dir}
     """
 }
 
@@ -170,7 +169,6 @@ process fq_coverage {
     """
 }
 
-
 process fq_coverage_merge {
 
     publishDir analysis_dir + "/fq", mode: 'copy'
@@ -193,7 +191,7 @@ process fq_coverage_merge {
 
 process merge_bam {
 
-    publishDir bam_dir, mode: 'copy', pattern: '*.bam*'
+    storeDir bam_dir, pattern: '*.bam*'
 
     cpus cores
 
@@ -207,7 +205,6 @@ process merge_bam {
         file("${SM}.duplicates.txt") into duplicates_file
 
     """
-
     count=`echo ${bam.join(" ")} | tr ' ' '\\n' | wc -l`
 
     if [ "\${count}" -eq "1" ]; then
@@ -230,75 +227,6 @@ merged_SM.into {
                 merged_bams_union;
                 fq_concordance_bams;
                 }
-
-
-/* 
-    Call variants at the individual level for concordance
-*/
-
-fq_concordance_script = file("fq_concordance.R")
-
-process fq_concordance {
-
-    cpus call_variant_cpus
-
-    tag { SM }
-
-    input:
-        set val(SM), file("input.bam"), file("input.bam.bai") from fq_concordance_bams
-
-    output:
-        file('out.tsv') into fq_concordance_out
-
-    """
-        # Split bam file into individual read groups; Ignore MtDNA
-        contigs="`samtools view -H input.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40 | grep -v 'MtDNA' | tr ' ' '\\n'`"
-        samtools split -f '%!.%.' input.bam
-        # DO NOT INDEX ORIGINAL BAM; ELIMINATES CACHE!
-        bam_list="`ls -1 *.bam | grep -v 'input.bam'`"
-
-        ls -1 *.bam | grep -v 'input.bam' | xargs --verbose -I {} -P ${call_variant_cpus} sh -c "samtools index {}"
-
-        # Generate a site list for the set of fastqs
-        rg_list="`samtools view -H input.bam | grep '@RG.*ID:' | cut -f 2 | sed  's/ID://'`"
-        # Perform individual-level calling
-        for rg in \$rg_list; do
-            echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${call_variant_cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} \${rg}.bam | bcftools call --skip-variants indels --variants-only --multiallelic-caller -O v | bcftools query -f '%CHROM\\t%POS\\n' >> {}.\${rg}.site_list.tsv"
-        done;
-        cat *.site_list.tsv  | sort --temporary-directory=${tmpdir} -k1,1 -k2,2n | uniq > site_list.srt.tsv
-        bgzip site_list.srt.tsv -c > site_list.srt.tsv.gz && tabix -s1 -b2 -e2 site_list.srt.tsv.gz
-        
-        # Call a union set of variants
-        for rg in \$rg_list; do
-            echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${call_variant_cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} \${rg}.bam | bcftools call -T site_list.srt.tsv.gz --skip-variants indels --multiallelic-caller -O z > {}.\${rg}.vcf.gz"
-            order=`echo \${contigs} | tr ' ' '\\n' | awk -v rg=\${rg} '{ print \$1 "." rg ".vcf.gz" }'`
-            # Output variant sites
-            bcftools concat \${order} -O v | \\
-            vk geno het-polarization - | \\
-            bcftools query -f '%CHROM\\t%POS[\\t%GT\\t${SM}\\n]' | grep -v '0/1' | awk -v rg=\${rg} '{ print \$0 "\\t" rg }' > \${rg}.rg_gt.tsv
-        done;
-        cat *.rg_gt.tsv > rg_gt.tsv
-        touch out.tsv
-        Rscript --vanilla ${fq_concordance_script} 
-    """
-}
-
-process combine_fq_concordance {
-
-    publishDir analysis_dir + "/concordance", mode: 'copy', overwrite: true
-
-    input:
-        file("out*.tsv") from fq_concordance_out.toSortedList()
-
-    output:
-        file("fq_concordance.tsv")
-
-    """
-        cat <(echo 'a\tb\tconcordant_sites\ttotal_sites\tconcordance\tSM') out*.tsv > fq_concordance.tsv
-    """
-
-
-}
 
 
 
@@ -440,9 +368,73 @@ process SM_coverage_merge {
 */
 
 site_list =  site_list.spread(site_list_index)
-union_vcf_channel = merged_bams_union.spread(site_list)
+site_list.into { site_list_one; site_list_two }
+union_vcf_channel = merged_bams_union.spread(site_list_one)
+fq_concordance_sitelist = fq_concordance_bams.spread(site_list_two)
 
 
+/* 
+    Call variants at the individual level for concordance
+*/
+
+fq_concordance_script = file("fq_concordance.R")
+
+process fq_concordance {
+
+    cpus call_variant_cpus
+
+    tag { SM }
+
+    input:
+        set val(SM), file("input.bam"), file("input.bam.bai"), file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from fq_concordance_bams
+
+    output:
+        file('out.tsv') into fq_concordance_out
+
+    """
+        # Split bam file into individual read groups; Ignore MtDNA
+        contigs="`samtools view -H input.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40 | grep -v 'MtDNA' | tr ' ' '\\n'`"
+        samtools split -f '%!.%.' input.bam
+        # DO NOT INDEX ORIGINAL BAM; ELIMINATES CACHE!
+        bam_list="`ls -1 *.bam | grep -v 'input.bam'`"
+
+        ls -1 *.bam | grep -v 'input.bam' | xargs --verbose -I {} -P ${call_variant_cpus} sh -c "samtools index {}"
+
+        # Call a union set of variants
+        for rg in \$rg_list; do
+            echo \${contigs} | tr ' ' '\\n' | xargs --verbose -I {} -P ${call_variant_cpus} sh -c "samtools mpileup --redo-BAQ -r {} --BCF --output-tags DP,AD,ADF,ADR,SP --fasta-ref ${reference} \${rg}.bam | bcftools call -T sitelist.tsv.gz --skip-variants indels --multiallelic-caller -O z > {}.\${rg}.vcf.gz"
+            order=`echo \${contigs} | tr ' ' '\\n' | awk -v rg=\${rg} '{ print \$1 "." rg ".vcf.gz" }'`
+            # Output variant sites
+            bcftools concat \${order} -O v | \\
+            vk geno het-polarization - | \\
+            bcftools query -f '%CHROM\\t%POS[\\t%GT\\t${SM}\\n]' | grep -v '0/1' | awk -v rg=\${rg} '{ print \$0 "\\t" rg }' > \${rg}.rg_gt.tsv
+        done;
+        cat *.rg_gt.tsv > rg_gt.tsv
+        touch out.tsv
+        Rscript --vanilla ${fq_concordance_script} 
+    """
+}
+
+process combine_fq_concordance {
+
+    publishDir analysis_dir + "/concordance", mode: 'copy', overwrite: true
+
+    input:
+        file("out*.tsv") from fq_concordance_out.toSortedList()
+
+    output:
+        file("fq_concordance.tsv")
+
+    """
+        cat <(echo 'a\tb\tconcordant_sites\ttotal_sites\tconcordance\tSM') out*.tsv > fq_concordance.tsv
+    """
+
+
+}
+
+/*
+    Call variants
+*/
 
 process call_variants_union {
 
@@ -516,8 +508,6 @@ contig_raw_vcf = contig_list*.concat(".merged.raw.vcf.gz")
 
 process concatenate_union_vcf {
 
-    publishDir analysis_dir + "/vcf", mode: 'copy'
-
     input:
         val merge_vcf from raw_vcf.toSortedList()
 
@@ -555,24 +545,7 @@ process filter_union_vcf {
     """
 }
 
-filtered_vcf.into { filtered_vcf_gtcheck; filtered_vcf_stat; hmm_vcf; hmm_vcf_clean; hmm_vcf_out; vcf_tree }
-
-process gtcheck_tsv {
-
-    publishDir analysis_dir + "/concordance", mode: 'copy'
-
-    input:
-        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") from filtered_vcf_gtcheck
-
-    output:
-        file("SM.gtcheck.tsv") into gtcheck
-
-    """
-        echo -e "discordance\\tsites\\tavg_min_depth\\ti\\tj" > SM.gtcheck.tsv
-        bcftools gtcheck -H -G 1 RIL.${date}.vcf.gz | egrep '^CN' | cut -f 2-6 >> SM.gtcheck.tsv
-    """
-
-}
+filtered_vcf.into { filtered_vcf_stat; hmm_vcf; hmm_vcf_clean; hmm_vcf_out; vcf_tree }
 
 
 process stat_tsv {
@@ -602,6 +575,8 @@ process output_hmm {
         file("gt_hmm.tsv")
 
     """
+        pyenv local anaconda2-4.2.0
+        export QT_QPA_PLATFORM=offscreen
         vk hmm --alt=ALT RIL.${date}.vcf.gz > gt_hmm.tsv
     """
 
@@ -619,6 +594,8 @@ process output_hmm_clean {
 
 
     """
+        pyenv local anaconda2-4.2.0
+        export QT_QPA_PLATFORM=offscreen
         vk hmm --infill --endfill --alt=ALT RIL.${date}.vcf.gz > gt_hmm_fill.tsv
     """
 
@@ -637,6 +614,8 @@ process output_hmm_vcf {
         set file("RIL_hmm.${date}.vcf.gz"), file("RIL_hmm.${date}.vcf.gz.csi") into gt_hmm
 
     """
+        pyenv local anaconda2-4.2.0
+        export QT_QPA_PLATFORM=offscreen
         vk hmm --vcf-out --all-sites --alt=ALT RIL.${date}.vcf.gz | bcftools view -O z > RIL_hmm.${date}.vcf.gz
         bcftools index RIL_hmm.${date}.vcf.gz
     """
@@ -661,7 +640,7 @@ process plot_hmm {
 
 }
 
-process generate_other_plot {
+process generate_issue_plots {
 
     publishDir analysis_dir + "/plots", mode: 'copy'
 
@@ -698,6 +677,43 @@ process output_tsv {
 
     """
         cat <(echo -e "CHROM\tPOS\tSAMPLE\tGT\tGT_ORIG\tAD") <(bcftools query -f '[%CHROM\t%POS\t%SAMPLE\t%GT\t%GT_ORIG\t%AD\n]' gt_hmm.vcf.gz | sed 's/0\\/0/0/g' | sed 's/1\\/1/1/g') > gt_hmm.tsv
+    """
+
+}
+
+process generate_cross_object {
+
+
+
+    """
+
+    # Generate breakpoint sites
+    cat <(cut -f 1,2 gt_hmm_fill.tsv) <(cut -f 1,3 gt_hmm_fill.tsv) |\
+    grep -v 'chrom' |\
+    sort -k1,1 -k2,2n |\
+    uniq > breakpoint_sites.tsv
+    bgzip breakpoint_sites.tsv -c > breakpoint_sites.tsv.gz && tabix -s1 -b2 -e2 breakpoint_sites.tsv.gz
+
+    # Generate output strains list
+    awk  '$2 > 1 && $2 != "coverage" { print }'  SM_coverage.tsv  | cut -f 1 | sort > output_strains.tsv
+
+    paste <(echo -e "strain\t\t") <(cat output_strains.tsv | tr '\n' '\t' | sed 's/\t$//g') > cross_obj_geno.tsv
+    bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL.2017-03-17.vcf.gz |\
+    bcftools query --samples-file output_strains.tsv -f '%CHROM\_%POS\t%CHROM\t%POS[\t%GT]\n' |\
+    awk  -v OFS='\t' '''
+            {   
+                gsub("0/0", "N", $0);
+                gsub("1/1", "C", $0);
+                gsub("./.","", $0);
+                $3;
+                print
+            }
+        ''' - >> cross_obj_geno.tsv
+
+    Rscript generate_cross_object.R
+
+
+   
     """
 
 }

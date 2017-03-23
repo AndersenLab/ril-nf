@@ -6,6 +6,7 @@
 site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
 site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
 hmm_plot_script=Channel.fromPath("plot_hmm.R")
+cross_object_script=Channel.fromPath("generate_cross_object.R")
 
 /*
     Set these parameters in nextflow.config
@@ -351,6 +352,7 @@ process SM_coverage_merge {
     output:
         file("SM_coverage.full.tsv")
         file("SM_coverage.tsv") into SM_coverage_plot
+        file("SM_coverage.tsv") into SM_coverage_cross_obj
 
     """
         echo -e 'SM\\tcontig\\tstart\\tend\\tproperty\\tvalue' > SM_coverage.full.tsv
@@ -591,6 +593,7 @@ process output_hmm_clean {
 
     output:
         file("gt_hmm_fill.tsv") into gt_hmm_fill
+        file("gt_hmm_fill.tsv") into gt_hmm_fill_cross_obj
 
 
     """
@@ -683,7 +686,17 @@ process output_tsv {
 
 process generate_cross_object {
 
+    publishDir analysis_dir + "/cross_object", mode: 'copy'
 
+    input:
+        file("SM_coverage.tsv") from SM_coverage_cross_obj
+        file("gt_hmm_fill.tsv") from gt_hmm_fill_cross_obj
+
+    output:
+        file("cross_obj.Rdata")
+        file("cross_obj_geno.tsv")
+        file("output_strains.tsv")
+        file("breakpoint_sites.tsv.gz")
 
     """
 
@@ -695,25 +708,24 @@ process generate_cross_object {
     bgzip breakpoint_sites.tsv -c > breakpoint_sites.tsv.gz && tabix -s1 -b2 -e2 breakpoint_sites.tsv.gz
 
     # Generate output strains list
-    awk  '$2 > 1 && $2 != "coverage" { print }'  SM_coverage.tsv  | cut -f 1 | sort > output_strains.tsv
+    awk  '$2 > 1 && $2 != "coverage" { print }'  SM_coverage.tsv  | cut -f 1 | sort > cross_obj_strains.tsv
 
-    paste <(echo -e "strain\t\t") <(cat output_strains.tsv | tr '\n' '\t' | sed 's/\t$//g') > cross_obj_geno.tsv
-    bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL.2017-03-17.vcf.gz |\
+    paste <(echo -e "strain\t\t") <(cat cross_obj_strains.tsv| tr '\n' '\t' | sed 's/\t$//g') > cross_obj_geno.tsv
+    bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL_hmm.2017-03-17.vcf.gz |\
     bcftools query --samples-file output_strains.tsv -f '%CHROM\_%POS\t%CHROM\t%POS[\t%GT]\n' |\
     awk  -v OFS='\t' '''
             {   
                 gsub("0/0", "N", $0);
                 gsub("1/1", "C", $0);
                 gsub("./.","", $0);
+                gsub("X","Xchr",$0);
                 $3;
                 print
             }
         ''' - >> cross_obj_geno.tsv
 
-    Rscript generate_cross_object.R
+    Rscript ${cross_object_script}
 
-
-   
     """
 
 }

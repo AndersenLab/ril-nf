@@ -708,17 +708,17 @@ process generate_cross_object {
     bgzip breakpoint_sites.tsv -c > breakpoint_sites.tsv.gz && tabix -s1 -b2 -e2 breakpoint_sites.tsv.gz
 
     # Generate output strains list
-    awk  '$2 > 1 && $2 != "coverage" { print }'  SM_coverage.tsv  | cut -f 1 | sort > cross_obj_strains.tsv
+    awk  '\$2 > 1 && \$2 != "coverage" { print }'  SM_coverage.tsv  | cut -f 1 | sort > cross_obj_strains.tsv
 
-    paste <(echo -e "strain\t\t") <(cat cross_obj_strains.tsv| tr '\n' '\t' | sed 's/\t$//g') > cross_obj_geno.tsv
+    paste <(echo -e "strain\t\t") <(cat cross_obj_strains.tsv| tr '\n' '\t' | sed 's/\t\$//g') > cross_obj_geno.tsv
     bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL_hmm.2017-03-17.vcf.gz |\
     bcftools query --samples-file output_strains.tsv -f '%CHROM\_%POS\t%CHROM\t%POS[\t%GT]\n' |\
     awk  -v OFS='\t' '''
             {   
-                gsub("0/0", "N", $0);
-                gsub("1/1", "C", $0);
-                gsub("./.","", $0);
-                gsub("X","Xchr",$0);
+                gsub("0/0", "N", \$0);
+                gsub("1/1", "C", \$0);
+                gsub("./.","", \$0);
+                gsub("X","Xchr", \$0);
                 $3;
                 print
             }

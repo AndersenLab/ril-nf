@@ -32,8 +32,6 @@ import groovy.json.JsonSlurper
 strainFile = new File("fq_ril_sheet.tsv")
 fqs = Channel.from(strainFile.collect { it.tokenize( '\t' ) })
 
-strain_set_file = Channel.fromPath("fq_ril_sheet.tsv")
-
 process setup_dirs {
 
     executor 'local'
@@ -388,7 +386,7 @@ process fq_concordance {
     tag { SM }
 
     input:
-        set val(SM), file("input.bam"), file("input.bam.bai"), file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from fq_concordance_bams
+        set val(SM), file("input.bam"), file("input.bam.bai"), file('sitelist.tsv.gz'), file('sitelist.tsv.gz.tbi') from fq_concordance_sitelist
 
     output:
         file('out.tsv') into fq_concordance_out
@@ -712,14 +710,14 @@ process generate_cross_object {
 
     paste <(echo -e "strain\t\t") <(cat cross_obj_strains.tsv| tr '\n' '\t' | sed 's/\t\$//g') > cross_obj_geno.tsv
     bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL_hmm.2017-03-17.vcf.gz |\
-    bcftools query --samples-file output_strains.tsv -f '%CHROM\_%POS\t%CHROM\t%POS[\t%GT]\n' |\
+    bcftools query --samples-file output_strains.tsv -f '%CHROM\\_%POS\t%CHROM\t%POS[\t%GT]\n' |\
     awk  -v OFS='\t' '''
             {   
                 gsub("0/0", "N", \$0);
                 gsub("1/1", "C", \$0);
                 gsub("./.","", \$0);
                 gsub("X","Xchr", \$0);
-                $3;
+                \$3;
                 print
             }
         ''' - >> cross_obj_geno.tsv

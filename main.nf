@@ -187,17 +187,22 @@ process fq_coverage_merge {
     """
 }
 
+sample_aligned_bams.into { sample_aligned_bams_out; sample_aligned_bams_use}
+
+sample_aligned_bams_out.groupTuple().println()
 
 process merge_bam {
 
-    storeDir bam_dir, pattern: '*.bam*'
+    echo true
+
+    storeDir bam_dir
 
     cpus cores
 
     tag { SM }
 
     input:
-        set SM, bam from sample_aligned_bams.groupTuple()
+        set SM, bam from sample_aligned_bams_use.groupTuple()
 
     output:
         set val(SM), file("${SM}.bam"), file("${SM}.bam.bai") into merged_SM
@@ -207,8 +212,8 @@ process merge_bam {
     count=`echo ${bam.join(" ")} | tr ' ' '\\n' | wc -l`
 
     if [ "\${count}" -eq "1" ]; then
-        ln -s ${bam.join(" ")} ${SM}.merged.bam
-        ln -s ${bam.join(" ")}.bai ${SM}.merged.bam.bai
+        ln -s ${bam[0]} ${SM}.merged.bam
+        ln -s ${bam[0]}.bai ${SM}.merged.bam.bai
     else
         sambamba merge --nthreads=${cores} --show-progress ${SM}.merged.bam ${bam.join(" ")}
         sambamba index --nthreads=${cores} ${SM}.merged.bam
@@ -394,6 +399,7 @@ process fq_concordance {
     """
         # Split bam file into individual read groups; Ignore MtDNA
         contigs="`samtools view -H input.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40 | grep -v 'MtDNA' | tr ' ' '\\n'`"
+        rg_list="`samtools view -H input.bam | grep '@RG' | grep -oP 'ID:([^\W]+)' | sed 's/ID://g'`"
         samtools split -f '%!.%.' input.bam
         # DO NOT INDEX ORIGINAL BAM; ELIMINATES CACHE!
         bam_list="`ls -1 *.bam | grep -v 'input.bam'`"

@@ -399,7 +399,7 @@ process fq_concordance {
     """
         # Split bam file into individual read groups; Ignore MtDNA
         contigs="`samtools view -H input.bam | grep -Po 'SN:([^\\W]+)' | cut -c 4-40 | grep -v 'MtDNA' | tr ' ' '\\n'`"
-        rg_list="`samtools view -H input.bam | grep '@RG' | grep -oP 'ID:([^\\W]+)' | sed 's/ID://g'`"
+        rg_list="`samtools view -H input.bam | grep '@RG' | grep -oP 'ID:([^ \\t]+)' | sed 's/ID://g'`"
         samtools split -f '%!.%.' input.bam
         # DO NOT INDEX ORIGINAL BAM; ELIMINATES CACHE!
         bam_list="`ls -1 *.bam | grep -v 'input.bam'`"

@@ -539,15 +539,15 @@ process filter_union_vcf {
         set file("merged.raw.vcf.gz"), file("merged.raw.vcf.gz.csi") from raw_vcf_concatenated
 
     output:
-        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") into filtered_vcf
+        set file("RIL.filter.vcf.gz"), file("RIL.filter.vcf.gz.csi") into filtered_vcf
 
     """
 
         bcftools view merged.raw.vcf.gz | \\
         vk geno het-polarization - | \\
         bcftools filter --set-GTs . --exclude '((FORMAT/AD[1])/(FORMAT/DP) < 0.75 && FORMAT/GT == "1/1")' - | \\
-        bcftools view -O z - > RIL.${date}.vcf.gz
-        bcftools index -f RIL.${date}.vcf.gz
+        bcftools view -O z - > RIL.filter.vcf.gz
+        bcftools index -f RIL.filter.vcf.gz
     """
 }
 
@@ -559,23 +559,23 @@ process stat_tsv {
     publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
-        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi")  from filtered_vcf_stat
+        set file("RIL.filter.vcf.gz"), file("RIL.filter.vcf.gz.csi")  from filtered_vcf_stat
 
     output:
-        file("filtered.stats.txt")
+        file("RIL.filtered.stats.txt")
 
     """
-        bcftools stats --verbose RIL.${date}.vcf.gz > filtered.stats.txt
+        bcftools stats --verbose RIL.filter.vcf.gz > RIL.filtered.stats.txt
     """
 
 }
 
 process output_hmm {
 
-    publishDir analysis_dir + "/hmm", mode: 'copy'
+    publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
-        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") from hmm_vcf
+        set file("RIL.filter.vcf.gz"), file("RIL.filter.vcf.gz.csi") from hmm_vcf
 
     output:
         file("gt_hmm.tsv")
@@ -583,17 +583,17 @@ process output_hmm {
     """
         pyenv local anaconda2-4.2.0
         export QT_QPA_PLATFORM=offscreen
-        vk hmm --alt=ALT RIL.${date}.vcf.gz > gt_hmm.tsv
+        vk hmm --alt=ALT RIL.filter.vcf.gz > gt_hmm.tsv
     """
 
 }
 
 process output_hmm_clean {
 
-    publishDir analysis_dir + "/hmm", mode: 'copy'
+    publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
-        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") from hmm_vcf_clean
+        set file("RIL.filter.vcf.gz"), file("RIL.filter.vcf.gz.csi") from hmm_vcf_clean
 
     output:
         file("gt_hmm_fill.tsv") into gt_hmm_fill
@@ -612,22 +612,24 @@ process output_hmm_clean {
 
 process output_hmm_vcf {
 
-    publishDir analysis_dir + "/hmm", mode: 'copy'
+    publishDir analysis_dir + "/vcf", mode: 'copy'
 
     input:
-        set file("RIL.${date}.vcf.gz"), file("RIL.${date}.vcf.gz.csi") from hmm_vcf_out
+        set file("RIL.vcf.gz"), file("RIL.vcf.gz.csi") from hmm_vcf_out
 
     output:
-        set file("RIL_hmm.${date}.vcf.gz"), file("RIL_hmm.${date}.vcf.gz.csi") into gt_hmm
+        set file("RIL.hmm.vcf.gz"), file("RIL.hmm.vcf.gz.csi") into gt_hmm
 
     """
         pyenv local anaconda2-4.2.0
         export QT_QPA_PLATFORM=offscreen
-        vk hmm --vcf-out --all-sites --alt=ALT RIL.${date}.vcf.gz | bcftools view -O z > RIL_hmm.${date}.vcf.gz
-        bcftools index RIL_hmm.${date}.vcf.gz
+        vk hmm --vcf-out --all-sites --alt=ALT RIL.vcf.gz | bcftools view -O z > RIL.hmm.vcf.gz
+        bcftools index RIL.hmm.vcf.gz
     """
 
 }
+
+gt_hmm.into { gt_hmm_tsv; gt_hmm_vcf }
 
 process plot_hmm {
 
@@ -677,13 +679,13 @@ process output_tsv {
     publishDir analysis_dir + "/hmm", mode: 'copy'
 
     input:
-        set file("gt_hmm.vcf.gz"), file("gt_hmm.vcf.gz.csi") from gt_hmm
+        set file("RIL.hmm.vcf.gz"), file("RIL.hmm.vcf.gz.csi") from gt_hmm_tsv
 
     output:
         file("gt_hmm.tsv")
 
     """
-        cat <(echo -e "CHROM\tPOS\tSAMPLE\tGT\tGT_ORIG\tAD") <(bcftools query -f '[%CHROM\t%POS\t%SAMPLE\t%GT\t%GT_ORIG\t%AD\n]' gt_hmm.vcf.gz | sed 's/0\\/0/0/g' | sed 's/1\\/1/1/g') > gt_hmm.tsv
+        cat <(echo -e "CHROM\tPOS\tSAMPLE\tGT\tGT_ORIG\tAD") <(bcftools query -f '[%CHROM\t%POS\t%SAMPLE\t%GT\t%GT_ORIG\t%AD\n]' RIL.hmm.vcf.gz | sed 's/0\\/0/0/g' | sed 's/1\\/1/1/g') > gt_hmm.tsv
     """
 
 }
@@ -693,6 +695,7 @@ process generate_cross_object {
     publishDir analysis_dir + "/cross_object", mode: 'copy'
 
     input:
+        set file("RIL.hmm.vcf.gz"), file("RIL.hmm.vcf.gz.csi") from gt_hmm_vcf
         file("SM_coverage.tsv") from SM_coverage_cross_obj
         file("gt_hmm_fill.tsv") from gt_hmm_fill_cross_obj
 
@@ -715,7 +718,7 @@ process generate_cross_object {
     awk  '\$2 > 1 && \$2 != "coverage" { print }'  SM_coverage.tsv  | cut -f 1 | sort > cross_obj_strains.tsv
 
     paste <(echo -e "strain\t\t") <(cat cross_obj_strains.tsv| tr '\n' '\t' | sed 's/\t\$//g') > cross_obj_geno.tsv
-    bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL_hmm.2017-03-17.vcf.gz |\
+    bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL.hmm.vcf.gz |\
     bcftools query --samples-file output_strains.tsv -f '%CHROM\\_%POS\t%CHROM\t%POS[\t%GT]\n' |\
     awk  -v OFS='\t' '''
             {   

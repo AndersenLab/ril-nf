@@ -603,7 +603,7 @@ process output_hmm_clean {
     """
         pyenv local anaconda2-4.2.0
         export QT_QPA_PLATFORM=offscreen
-        vk hmm --infill --endfill --alt=ALT RIL.${date}.vcf.gz > gt_hmm_fill.tsv
+        vk hmm --infill --endfill --alt=ALT RIL.filter.vcf.gz > gt_hmm_fill.tsv
     """
 
 }

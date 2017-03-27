@@ -3,7 +3,7 @@ library(linkagemapping)
 library(tidyverse)
 data("N2xCB4856cross")
 # Generate phenotype info
-pheno <- readr::read_tsv("output_strains.tsv", col_names = "strain") %>%
+pheno <- readr::read_tsv("cross_obj_strains.tsv", col_names = "strain") %>%
   dplyr::mutate(pheno = 1) %>% 
   dplyr::select(pheno, strain) %>% t() 
 pheno <- cbind(c("dummy_pheno", "strain"), pheno)

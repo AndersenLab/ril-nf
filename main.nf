@@ -702,7 +702,7 @@ process generate_cross_object {
     output:
         file("cross_obj.Rdata")
         file("cross_obj_geno.tsv")
-        file("output_strains.tsv")
+        file("cross_obj_strains.tsv")
         file("breakpoint_sites.tsv.gz")
 
     """

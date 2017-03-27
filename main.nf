@@ -702,6 +702,7 @@ process generate_cross_object {
     output:
         file("cross_obj.Rdata")
         file("cross_obj_geno.tsv")
+        file("cross_obj_pheno.tsv")
         file("cross_obj_strains.tsv")
         file("breakpoint_sites.tsv.gz")
 
@@ -715,7 +716,12 @@ process generate_cross_object {
     bgzip breakpoint_sites.tsv -c > breakpoint_sites.tsv.gz && tabix -s1 -b2 -e2 breakpoint_sites.tsv.gz
 
     # Generate output strains list
-    awk  '\$2 > 1 && \$2 != "coverage" { print }'  SM_coverage.tsv  | cut -f 1 | sort > cross_obj_strains.tsv
+    awk  '\$2 > 1 && \$2 != "coverage" { print }'  SM_coverage.tsv  |\
+    cut -f 1 |\
+    grep -v 'N2' |\
+    grep -v 'CB4856' |\
+    grep -v 'QX1430' |\
+    sort -V > cross_obj_strains.tsv
 
     paste <(echo -e "strain\\t\\t") <(cat cross_obj_strains.tsv| tr '\n' '\t' | sed 's/\t\$//g') > cross_obj_geno.tsv
     bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL.hmm.vcf.gz |\
@@ -734,5 +740,4 @@ process generate_cross_object {
     Rscript ${cross_object_script}
 
     """
-
 }

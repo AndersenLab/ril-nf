@@ -17,6 +17,8 @@ cross_obj <- read.cross(format = "csvsr",
                         alleles = c("N","C"),
                         sep = "\t")
 
+# Fix sorting of strains
+
 # Fix X Chromosome Name
 names(cross_obj$geno)[names(cross_obj$geno) == "Xchr"] <- "X"
 

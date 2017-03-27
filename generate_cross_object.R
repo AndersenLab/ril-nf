@@ -1,4 +1,5 @@
 library(qtl)
+library(linkagemapping)
 library(tidyverse)
 data("N2xCB4856cross")
 # Generate phenotype info

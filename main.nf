@@ -6,7 +6,7 @@
 site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
 site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
 hmm_plot_script=Channel.fromPath("plot_hmm.R")
-cross_object_script=Channel.fromPath("generate_cross_object.R")
+cross_object_script=file("generate_cross_object.R")
 
 /*
     Set these parameters in nextflow.config
@@ -717,9 +717,9 @@ process generate_cross_object {
     # Generate output strains list
     awk  '\$2 > 1 && \$2 != "coverage" { print }'  SM_coverage.tsv  | cut -f 1 | sort > cross_obj_strains.tsv
 
-    paste <(echo -e "strain\t\t") <(cat cross_obj_strains.tsv| tr '\n' '\t' | sed 's/\t\$//g') > cross_obj_geno.tsv
+    paste <(echo -e "strain\\t\\t") <(cat cross_obj_strains.tsv| tr '\n' '\t' | sed 's/\t\$//g') > cross_obj_geno.tsv
     bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL.hmm.vcf.gz |\
-    bcftools query --samples-file output_strains.tsv -f '%CHROM\\_%POS\t%CHROM\t%POS[\t%GT]\n' |\
+    bcftools query --samples-file output_strains.tsv -f '%CHROM\\_%POS\\t%CHROM\\t%POS[\\t%GT]\n' |\
     awk  -v OFS='\t' '''
             {   
                 gsub("0/0", "N", \$0);

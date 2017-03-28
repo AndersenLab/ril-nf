@@ -66,7 +66,7 @@ The output directory looks like this:
     └── gt_hmm.tsv
 ```
 
-##### concordance
+#### concordance
  
 __fq_concordance.tsv__ - Contains the concordance among fastqs belonging to the same strain. 
 
@@ -82,7 +82,7 @@ __fq_concordance.tsv__ - Contains the concordance among fastqs belonging to the 
 | QX204_CAGAGAGGCCGGATA | EA-G02_TTAACTC_L001   |             148794 |        151385 |      0.982885 | QX204 |
 | EA-G02_TTAACTC_L001   | QX204_CAGAGAGGCCGGATA |             148794 |        151385 |      0.982885 | QX204 |
 
-##### cross_object
+#### cross_object
 
 __breakpoint_sites.tsv.gz__ - A gzipped file of sites flanking loci where recombination has occured.
 __cross_obj.Rdata__ - A cross object usable with `qtl`

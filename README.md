@@ -6,7 +6,7 @@ Align, call variants, and generate datasets for RIAIL sequence data
 
 ```
 # cd to directory of fastqs
-nextflow run main.nf
+nextflow run main.nf -resume
 ```
 
 __`fq_ril_sheet.tsv`__ is a file that details all of the sequence data. It is generated using the script `scripts/construct_fq_sheet.sh`. `fq_ril_sheet.tsv`
@@ -21,9 +21,14 @@ The file has the following format:
 | QX99   | QX99_CGAGGCTGTGGCAAT   | CGAGGCTGTGGCAAT   | /projects/b1059/data/fastq/RIL/dna/processed/151009_D00422_0262_BC7NJ0ANXX-ECA/QX99_CGAGGCTG-TGGCAAT_L003_R1_001.fq.gz   | /projects/b1059/data/fastq/RIL/dna/processed/151009_D00422_0262_BC7NJ0ANXX-ECA/QX99_CGAGGCTG-TGGCAAT_L003_R2_001.fq.gz   |
 | QX99   | QX99_CGAGGCTGTGGCAAT   | CGAGGCTGTGGCAAT   | /projects/b1059/data/fastq/RIL/dna/processed/151009_D00422_0262_BC7NJ0ANXX-ECA/QX99_CGAGGCTG-TGGCAAT_L004_R1_001.fq.gz   | /projects/b1059/data/fastq/RIL/dna/processed/151009_D00422_0262_BC7NJ0ANXX-ECA/QX99_CGAGGCTG-TGGCAAT_L004_R2_001.fq.gz   |
 
+RIL fastqs are stored in `/projects/b1059/data/fastq/RIL/dna/processed/`.
+
+* Sequence data is very low coverage by design. No pre-processing takes place because variants will be called at specific positions and low quality/adapter contamination are unlikely to be problematic.
+* You may wish to perform adapter trimming if contamination is bad. However, most of these reads will be soft-clipped during alignment.
+
 ### Generate CB4856 Sitelist
 
-The `CB4856.20160408.sitelist.tsv.gz` file is probably fine forever, but...
+The `CB4856.20160408.sitelist.tsv.gz` file is probably fine forever. It was generated with the following command:
 
 ```
 bcftools view --samples CB4856,N2 -m 2 -M 2 WI.20160408.filtered.vcf.gz | \

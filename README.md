@@ -38,3 +38,58 @@ bcftools view --samples CB4856 - | \
 bcftools query --include 'FORMAT/GT == "1/1"' -f '%CHROM\t%POS\t%REF,%ALT\n' | \
 bgzip -c > CB4856.20160408.sitelist.tsv.gz && tabix -s 1 -b 2 -e 2 CB4856.20160408.sitelist.tsv.gz
 ```
+
+### Output
+
+The output directory looks like this:
+
+```
+├── concordance
+│   └── fq_concordance.tsv
+├── cross_object
+│   ├── breakpoint_sites.tsv.gz
+│   ├── cross_obj.Rdata
+│   ├── cross_obj_geno.tsv
+│   ├── cross_obj_pheno.tsv
+│   └── cross_obj_strains.tsv
+├── duplicates
+│   └── bam_duplicates.tsv
+├── fq
+│   ├── fq_bam_idxstats.tsv
+│   ├── fq_bam_stats.tsv
+│   ├── fq_coverage.full.tsv
+│   └── fq_coverage.tsv
+├── fq_ril_sheet.tsv
+└── hmm
+    ├── gt_hmm.png
+    ├── gt_hmm.svg
+    └── gt_hmm.tsv
+```
+
+##### concordance
+ 
+__fq_concordance.tsv__ - Contains the concordance among fastqs belonging to the same strain. 
+
+* `a` - First fastq
+* `b` - Second fastq
+* `concordant_sites` - Number of sites concordant between `a` and `b`
+* `total_sites` - The total number of sites called in both `a` and `b`
+* `concordance` - frequency concordant.
+* `SM` - Strain
+
+| a                     | b                     |   concordant_sites |   total_sites |   concordance | SM    |
+|:----------------------|:----------------------|-------------------:|--------------:|--------------:|:------|
+| QX204_CAGAGAGGCCGGATA | EA-G02_TTAACTC_L001   |             148794 |        151385 |      0.982885 | QX204 |
+| EA-G02_TTAACTC_L001   | QX204_CAGAGAGGCCGGATA |             148794 |        151385 |      0.982885 | QX204 |
+
+##### cross_object
+
+__breakpoint_sites.tsv.gz__ - A gzipped file of sites flanking loci where recombination has occured.
+__cross_obj.Rdata__ - A cross object usable with `qtl`
+__cross_obj_geno.tsv__ - Genotypes file used by the R `qtl` package.
+__cross_obj_pheno.tsv__ - Phenotypes file used by the R `qtl` package.
+__cross_obj_strains.tsv__ - List of strains within the cross object.
+
+The script used to generate the cross object is called `generate_cross_object.R` and is located in the root of this repo.
+
+

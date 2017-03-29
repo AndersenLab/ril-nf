@@ -21,6 +21,7 @@ cross_obj <- read.cross(format = "csvsr",
 
 # Fix X Chromosome Name
 names(cross_obj$geno)[names(cross_obj$geno) == "Xchr"] <- "X"
+names(cross_obj$geno$X$map) <- gsub("Xchr_", "X_", names(cross_obj$geno$X$map))
 
 # Remove dummy pheno
 cross_obj$pheno$dummy_pheno <- NULL

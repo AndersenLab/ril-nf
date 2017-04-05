@@ -1,19 +1,22 @@
 library(qtl)
 library(linkagemapping)
 library(tidyverse)
+library(snow)
 data("N2xCB4856cross")
 # Generate phenotype info
 pheno <- readr::read_tsv("cross_obj_strains.tsv", col_names = "strain") %>%
-  dplyr::mutate(pheno = 1) %>% 
-  dplyr::select(pheno, strain) %>% t() 
+  dplyr::mutate(pheno = 1) %>%
+  dplyr::select(pheno, strain) %>% t()
+
 pheno <- cbind(c("dummy_pheno", "strain"), pheno)
 colnames(pheno) <- NULL
+
 write.table(pheno, file = "cross_obj_pheno.tsv", row.names = F, col.names = F,  quote = F, sep = "\t", na = "-")
 
 cross_obj <- read.cross(format = "csvsr",
                         genfile = "cross_obj_geno.tsv",
                         phefile = "cross_obj_pheno.tsv",
-                        genotypes = c("N","H","C"),
+                        genotypes = c("N","C"),
                         alleles = c("N","C"),
                         sep = "\t")
 
@@ -39,3 +42,51 @@ for(x in names(cross_obj$geno)) {
 }
 
 save(cross_obj, file = "cross_obj.Rdata" )
+
+
+
+# check for segregation distortion
+gt <- geno.table(cross_obj)
+
+# There is a skew on I, as predicted by peel/zeel
+
+# compare genotypes between individuals
+cg <- comparegeno(cross_obj)
+png(file = "comparegeno.png")
+hist(cg, breaks =100, xlab="Proportion of identical genotypes")
+dev.off()
+
+save(cg, file = "comparegeno.Rda")
+
+png(file = "rug.png")
+plot(0,type='n',axes=FALSE,ann=FALSE)
+rug(cg)
+dev.off()
+
+identicals <- which(cg > .98, arr.ind = TRUE)
+
+identicals_list <- apply(identicals, 2, function(x) {
+  cross_obj$pheno$strain[x]
+})
+
+save(identicals_list, file = "identicals_list.Rda")
+
+#There are 30 individuals that are 98% identical. These are all ECA strains. Which makes sense because they aren't advanced intercross lines.
+
+#check marker order
+pairrf <- est.rf(cross_obj)
+
+save(pairrf, file = "estrf.Rda")
+
+# no warnings, alleles likely not switched
+
+checkAlleles(pairrf)
+# no issues with alleles
+
+# plot the recombination pattern
+rfplot <- plot.rf(pairrf, alternate.chrid = TRUE)
+
+# recombination looks good
+CM_map <- est.map(pairrf, error.prob = 0.001, n.cluster = 6)
+
+save(CM_map, file = "CM_map.Rda")

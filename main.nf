@@ -486,6 +486,7 @@ process generate_union_vcf_list {
        file("union_vcfs.txt") into union_vcfs
 
     """
+        # output
         echo ${vcf_set.join(" ")} | tr ' ' '\\n' > union_vcfs.txt
     """
 }
@@ -701,10 +702,17 @@ process generate_cross_object {
 
     output:
         file("cross_obj.Rdata")
+        file("comparegeno.png")
+        file("comparegeno.Rda")
+        file("rug.png")
+        file("identicals_list.Rda")
+        file("CM_map.Rda")
         file("cross_obj_geno.tsv")
         file("cross_obj_pheno.tsv")
         file("cross_obj_strains.tsv")
         file("breakpoint_sites.tsv.gz")
+        file("estrf.Rda")
+        file("CM_cross_obj.Rda")
 
     """
 
@@ -725,6 +733,7 @@ process generate_cross_object {
 
     paste <(echo -e "strain\\t\\t") <(cat cross_obj_strains.tsv| tr '\n' '\t' | sed 's/\t\$//g') > cross_obj_geno.tsv
     bcftools view -T breakpoint_sites.tsv.gz -m 2 -M 2 RIL.hmm.vcf.gz |\
+    vk filter MISSING --max=0.10 - |\
     bcftools query --samples-file cross_obj_strains.tsv -f '%CHROM\\_%POS\\t%CHROM\\t%POS[\\t%GT]\n' |\
     awk  -v OFS='\t' '''
             {   

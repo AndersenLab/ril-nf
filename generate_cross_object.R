@@ -25,6 +25,7 @@ cross_obj <- read.cross(format = "csvsr",
 # Fix X Chromosome Name
 names(cross_obj$geno)[names(cross_obj$geno) == "Xchr"] <- "X"
 names(cross_obj$geno$X$map) <- gsub("Xchr_", "X_", names(cross_obj$geno$X$map))
+colnames(cross_obj$geno$X$data) <- gsub("Xchr_","X_", colnames(cross_obj$geno$X$data))
 
 # Remove dummy pheno
 cross_obj$pheno$dummy_pheno <- NULL
@@ -71,9 +72,9 @@ identicals_list <- apply(identicals, 2, function(x) {
 
 save(identicals_list, file = "identicals_list.Rda")
 
-#There are 30 individuals that are 98% identical. These are all ECA strains. Which makes sense because they aren't advanced intercross lines.
+# There are 30 individuals that are 98% identical. These are all ECA strains. Which makes sense because they aren't advanced intercross lines.
 
-#check marker order
+# check marker order
 pairrf <- est.rf(cross_obj)
 
 save(pairrf, file = "estrf.Rda")
@@ -90,3 +91,7 @@ rfplot <- plot.rf(pairrf, alternate.chrid = TRUE)
 CM_map <- est.map(pairrf, error.prob = 0.001, n.cluster = 6)
 
 save(CM_map, file = "CM_map.Rda")
+
+CM_cross_obj <- replace.map(pairrf, CM_map)
+
+save(CM_cross_obj, file = "CM_cross_obj.Rda")

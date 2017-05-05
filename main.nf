@@ -1,5 +1,5 @@
 #!/usr/bin/env nextflow
-//directory = '/projects/b1059/data/fastq/WI/dna/processed/**/'
+
 /*
     Filtering configuration
 */
@@ -505,7 +505,7 @@ process merge_union_vcf_chromosome {
         file("${chrom}.merged.raw.vcf.gz") into raw_vcf
 
     """
-        bcftools merge --threads 10 --regions ${chrom} -O z -m all --file-list ${union_vcfs} > ${chrom}.merged.raw.vcf.gz
+        bcftools merge --regions ${chrom} -O z -m all --file-list ${union_vcfs} > ${chrom}.merged.raw.vcf.gz
         bcftools index ${chrom}.merged.raw.vcf.gz
     """
 }
@@ -705,14 +705,13 @@ process generate_cross_object {
         file("comparegeno.png")
         file("comparegeno.Rda")
         file("rug.png")
-        file("identicals_list.Rda")
+        file("estrf.Rda")
         file("CM_map.Rda")
+        file("identicals_list.Rda")
         file("cross_obj_geno.tsv")
         file("cross_obj_pheno.tsv")
         file("cross_obj_strains.tsv")
         file("breakpoint_sites.tsv.gz")
-        file("estrf.Rda")
-        file("CM_cross_obj.Rda")
 
     """
 

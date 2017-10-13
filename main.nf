@@ -1,62 +1,166 @@
 #!/usr/bin/env nextflow
+/* 
+ * Authors: 
+ * - Daniel Cook <danielecook@gmail.com>
+ *  
+ */
 
-/*
-    Filtering configuration
-*/
-site_list=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz")
-site_list_index=Channel.fromPath("CB4856.20160408.sitelist.tsv.gz.tbi")
-hmm_plot_script=Channel.fromPath("plot_hmm.R")
-cross_object_script=file("generate_cross_object.R")
-
-/*
-    Set these parameters in nextflow.config
-*/
 date = new Date().format( 'yyyy-MM-dd' )
-tmpdir = config.tmpdir
-reference = config.reference
-cores = config.cores
-analysis_dir = config.analysis_dir
-bam_dir = config.bam_dir
-call_variant_cpus = config.call_variant_cpus
+params.debug = false
+params.cores = 4
+params.A = 'N2'
+params.B = 'CB4856'
+params.cA = "#0080FF"
+params.cB = "#FF8000"
+params.out = "NIL-${params.A}-${params.B}-${date}"
+params.reference = "(required)"
+params.tmpdir = "tmp/"
 
-// Define contigs here!
-contig_list = ["I", "II", "III", "IV", "V", "X", "MtDNA"]
-contigs = Channel.from(contig_list)
 
-println "Processing RIL Data"
-println "Using Reference: ${reference}" 
+if (params.debug == true) {
+    println """
 
-// Construct strain and isotype lists
-import groovy.json.JsonSlurper
-
-strainFile = new File("fq_ril_sheet.tsv")
-fqs = Channel.from(strainFile.collect { it.tokenize( '\t' ) })
-
-process setup_dirs {
-
-    executor 'local'
-
-    publishDir analysis_dir, mode: 'copy'
-
-    input:
-        file("fq_ril_sheet.tsv") from Channel.fromPath("fq_ril_sheet.tsv")
-
-    output:
-        file("fq_ril_sheet.tsv")
+        ***Using debug mode***
 
     """
-    """
+    params.fqs = "${workflow.projectDir}/debug_data/fq_sheet.tsv"
+    params.vcf = "${workflow.projectDir}/debug_data/N2_CB.simple.vcf.gz"
+} else {
+    params.fqs = "(required)"
+    params.vcf = "(required)"
 }
 
+// Define VCF
+parental_vcf=file("${params.vcf}")
+reference_handle = file("${params.reference}")
+File fq_file = new File("${params.fqs}")
+
+
+param_summary = '''
+
+ ▄▄▄▄▄▄▄▄▄▄▄  ▄▄▄▄▄▄▄▄▄▄▄  ▄               ▄▄        ▄  ▄▄▄▄▄▄▄▄▄▄▄ 
+▐░░░░░░░░░░░▌▐░░░░░░░░░░░▌▐░▌             ▐░░▌      ▐░▌▐░░░░░░░░░░░▌
+▐░█▀▀▀▀▀▀▀█░▌ ▀▀▀▀█░█▀▀▀▀ ▐░▌             ▐░▌░▌     ▐░▌▐░█▀▀▀▀▀▀▀▀▀ 
+▐░▌       ▐░▌     ▐░▌     ▐░▌             ▐░▌▐░▌    ▐░▌▐░▌          
+▐░█▄▄▄▄▄▄▄█░▌     ▐░▌     ▐░▌ ▄▄▄▄▄▄▄▄▄▄▄ ▐░▌ ▐░▌   ▐░▌▐░█▄▄▄▄▄▄▄▄▄ 
+▐░░░░░░░░░░░▌     ▐░▌     ▐░▌▐░░░░░░░░░░░▌▐░▌  ▐░▌  ▐░▌▐░░░░░░░░░░░▌
+▐░█▀▀▀▀█░█▀▀      ▐░▌     ▐░▌ ▀▀▀▀▀▀▀▀▀▀▀ ▐░▌   ▐░▌ ▐░▌▐░█▀▀▀▀▀▀▀▀▀ 
+▐░▌     ▐░▌       ▐░▌     ▐░▌             ▐░▌    ▐░▌▐░▌▐░▌          
+▐░▌      ▐░▌  ▄▄▄▄█░█▄▄▄▄ ▐░█▄▄▄▄▄▄▄▄▄    ▐░▌     ▐░▐░▌▐░▌          
+▐░▌       ▐░▌▐░░░░░░░░░░░▌▐░░░░░░░░░░░▌   ▐░▌      ▐░░▌▐░▌          
+ ▀         ▀  ▀▀▀▀▀▀▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀▀▀     ▀        ▀▀  ▀           
+                                                                    
+
+''' + """
+    parameters           description                    Set/Default
+    ==========           ===========                    =======
+    
+    --debug              Set to 'true' to test          ${params.debug}
+    --cores              Number of cores                ${params.cores}
+    --A                  Parent A                       ${params.A}
+    --B                  Parent B                       ${params.B}
+    --cA                 Parent A color (for plots)     ${params.cA}
+    --cB                 Parent B color (for plots)     ${params.cB}
+    --out                Directory to output results    ${params.out}
+    --fqs                fastq file (see help)          ${params.fqs}
+    --reference          Reference Genome               ${params.reference}
+    --vcf                VCF to fetch parents from      ${params.vcf}
+    --tmpdir             A temporary directory          ${params.tmpdir}
+
+    HELP: http://andersenlab.org/dry-guide/pipeline-nil/
+"""
+
+println param_summary
+
+
+if (params.vcf == "(required)" || params.reference == "(required)" || params.fqs == "(required)") {
+
+    println """
+    The Set/Default column shows what the value is currently set to
+    or would be set to if it is not specified (it's default).
+    """
+    System.exit(0)
+} 
+
+if (!parental_vcf.exists()) {
+    println """
+
+    Error: VCF Does not exist
+
+    """
+    System.exit(1)
+}
+
+if (!reference_handle.exists()) {
+    println """
+
+    Error: Reference does not exist
+
+    """
+    System.exit(1)
+} 
+
+
+if (!fq_file.exists()) {
+    println """
+
+    Error: fastq sheet does not exist
+
+    """
+    System.exit(1)
+}
+
+
+// Define contigs here!
+contig_list = ["I", "II", "III", "IV", "V", "X", "MtDNA"];
+contigs = Channel.from(contig_list)
+
+fq_file_prefix = fq_file.getParentFile().getAbsolutePath();
+fqs = Channel.from(fq_file.collect { it.tokenize( '\t' ) })
+             .map { SM, ID, LB, fq1, fq2 -> [SM, ID, LB, file("${fq_file_prefix}/${fq1}"), file("${fq_file_prefix}/${fq2}")] }
+
+
 /*
+    ======================
+    Generating a site list
+    ======================
+*/
+
+process generate_sitelist {
+
+    publishDir params.out + "/sitelist", mode: 'copy'
+    
+    input:
+        file("parental.vcf.gz") from parental_vcf
+
+    output:
+        set file("${params.A}.${params.B}.sitelist.tsv.gz"), file("${params.A}.${params.B}.sitelist.tsv.gz.tbi") into site_list
+        set file("${params.A}.${params.B}.parental.vcf.gz"), file("${params.A}.${params.B}.parental.vcf.gz.csi") into parental_vcf_only
+
+    """
+    # Generate parental VCF
+    bcftools view --samples ${params.A},${params.B} -m 2 -M 2 parental.vcf.gz | \\
+    awk '\$0 ~ "^#" || (\$0 ~ "0/0" && \$0 ~ "1/1") { print }' | \\
+    bcftools filter -O z --include 'FORMAT/GT == "0/0" || FORMAT/GT == "1/1"' > ${params.A}.${params.B}.parental.vcf.gz
+    bcftools index ${params.A}.${params.B}.parental.vcf.gz
+
+    # Generate Sitelist
+    bcftools query --include 'FORMAT/GT == "0/0" || FORMAT/GT == "1/1"' -f "%CHROM\\t%POS\\t%REF,%ALT\\n" ${params.A}.${params.B}.parental.vcf.gz > ${params.A}.${params.B}.sitelist.tsv
+    bgzip ${params.A}.${params.B}.sitelist.tsv
+    tabix -s 1 -b 2 -e 2 ${params.A}.${params.B}.sitelist.tsv.gz
+    """   
+}
+
+
+/*
+    ===============
     Fastq alignment
+    ===============
 */
 
 process perform_alignment {
 
-    echo true
-
-    cpus 4
+    cpus params.cores
 
     tag { ID }
 
@@ -65,20 +169,27 @@ process perform_alignment {
     output:
         set SM, ID, LB, file("${ID}.bam"), file("${ID}.bam.bai") into aligned_bams
         set SM, file("${ID}.bam") into sample_aligned_bams
-    
+
+    script:
+
     """
-        bwa mem -t ${cores} -R '@RG\tID:${ID}\tLB:${LB}\tSM:${SM}' ${reference} ${fq1} ${fq2} | \\
-        sambamba view --nthreads=${cores} --sam-input --format=bam --with-header /dev/stdin | \\
-        sambamba sort --nthreads=${cores} --show-progress --tmpdir=${tmpdir} --out=${ID}.bam /dev/stdin
-        sambamba index --nthreads=${cores} ${ID}.bam
+        bwa mem -t ${params.cores} -R '@RG\\tID:${ID}\\tLB:${LB}\\tSM:${SM}' ${reference_handle} ${fq1} ${fq2} | \\
+        sambamba view --nthreads=${params.cores} --sam-input --format=bam --with-header /dev/stdin | \\
+        sambamba sort --nthreads=${params.cores} --show-progress --tmpdir=${params.tmpdir} --out=${ID}.bam /dev/stdin
+        sambamba index --nthreads=${params.cores} ${ID}.bam
+
+        if [[ ! \$(samtools view ${ID}.bam | head -n 10) ]]; then
+            exit 1;
+        fi
     """
 }
 
+
 aligned_bams.into { 
-                           sample_bams_fq_idx_stats;
-                           fq_stat_bams;
-                           fq_cov_bam_indices; 
-                         }
+                     sample_bams_fq_idx_stats;
+                     fq_stat_bams;
+                     fq_cov_bam_indices; 
+                  }
 
 /*
     fq idx stats
@@ -100,7 +211,7 @@ process fq_idx_stats {
 
 process fq_combine_idx_stats {
 
-    publishDir analysis_dir + "/fq", mode: 'copy'
+    publishDir params.out + "/fq", mode: 'copy'
 
     input:
         val bam_idxstats from fq_idxstats_set.toSortedList()
@@ -136,7 +247,7 @@ process fq_bam_stats {
 
 process combine_bam_stats {
 
-    publishDir analysis_dir + "/fq", mode: 'copy'
+    publishDir params.out + "/fq", mode: 'copy'
 
     input:
         val stat_files from bam_stat_files.toSortedList()
@@ -170,7 +281,7 @@ process fq_coverage {
 
 process fq_coverage_merge {
 
-    publishDir analysis_dir + "/fq", mode: 'copy'
+    publishDir params.out + "/fq", mode: 'copy'
 
     input:
         val fq_set from fq_coverage.toSortedList()
@@ -252,7 +363,7 @@ process idx_stats_SM {
 
 process combine_idx_stats {
 
-    publishDir analysis_dir +"/SM", mode: 'copy'
+    publishDir params.out +"/SM", mode: 'copy'
 
     input:
         val bam_idxstats from bam_idxstats_set.toSortedList()
@@ -289,7 +400,7 @@ process SM_bam_stats {
 
 process combine_SM_bam_stats {
 
-    publishDir analysis_dir + "/SM", mode: 'copy'
+    publishDir params.out + "/SM", mode: 'copy'
 
     input:
         val stat_files from SM_bam_stat_files.toSortedList()
@@ -307,7 +418,7 @@ process combine_SM_bam_stats {
 
 process format_duplicates {
 
-    publishDir analysis_dir + "/duplicates", mode: 'copy'
+    publishDir params.out + "/duplicates", mode: 'copy'
 
     input:
         val duplicates_set from duplicates_file.toSortedList()
@@ -346,7 +457,7 @@ process SM_coverage {
 
 process SM_coverage_merge {
 
-    publishDir analysis_dir + "/SM", mode: 'copy'
+    publishDir params.out + "/SM", mode: 'copy'
 
 
     input:
@@ -382,8 +493,6 @@ fq_concordance_sitelist = fq_concordance_bams.spread(site_list_two)
     Call variants at the individual level for concordance
 */
 
-fq_concordance_script = file("fq_concordance.R")
-
 process fq_concordance {
 
     cpus call_variant_cpus
@@ -417,13 +526,13 @@ process fq_concordance {
         done;
         cat *.rg_gt.tsv > rg_gt.tsv
         touch out.tsv
-        Rscript --vanilla ${fq_concordance_script} 
+        Rscript --vanilla `which fq_concordance.R`
     """
 }
 
 process combine_fq_concordance {
 
-    publishDir analysis_dir + "/concordance", mode: 'copy', overwrite: true
+    publishDir params.out + "/concordance", mode: 'copy', overwrite: true
 
     input:
         file("out*.tsv") from fq_concordance_out.toSortedList()
@@ -477,7 +586,7 @@ process generate_union_vcf_list {
 
     cpus 1 
 
-    publishDir analysis_dir + "/vcf", mode: 'copy'
+    publishDir params.out + "/vcf", mode: 'copy'
 
     input:
        val vcf_set from union_vcf_set.toSortedList()
@@ -534,7 +643,7 @@ process concatenate_union_vcf {
 
 process filter_union_vcf {
 
-    publishDir analysis_dir + "/vcf", mode: 'copy'
+    publishDir params.out + "/vcf", mode: 'copy'
 
     input:
         set file("merged.raw.vcf.gz"), file("merged.raw.vcf.gz.csi") from raw_vcf_concatenated
@@ -557,7 +666,7 @@ filtered_vcf.into { filtered_vcf_stat; hmm_vcf; hmm_vcf_clean; hmm_vcf_out; vcf_
 
 process stat_tsv {
 
-    publishDir analysis_dir + "/vcf", mode: 'copy'
+    publishDir params.out + "/vcf", mode: 'copy'
 
     input:
         set file("RIL.filter.vcf.gz"), file("RIL.filter.vcf.gz.csi")  from filtered_vcf_stat
@@ -573,7 +682,7 @@ process stat_tsv {
 
 process output_hmm {
 
-    publishDir analysis_dir + "/vcf", mode: 'copy'
+    publishDir params.out + "/vcf", mode: 'copy'
 
     input:
         set file("RIL.filter.vcf.gz"), file("RIL.filter.vcf.gz.csi") from hmm_vcf
@@ -591,7 +700,7 @@ process output_hmm {
 
 process output_hmm_clean {
 
-    publishDir analysis_dir + "/vcf", mode: 'copy'
+    publishDir params.out + "/vcf", mode: 'copy'
 
     input:
         set file("RIL.filter.vcf.gz"), file("RIL.filter.vcf.gz.csi") from hmm_vcf_clean
@@ -613,7 +722,7 @@ process output_hmm_clean {
 
 process output_hmm_vcf {
 
-    publishDir analysis_dir + "/vcf", mode: 'copy'
+    publishDir params.out + "/vcf", mode: 'copy'
 
     input:
         set file("RIL.vcf.gz"), file("RIL.vcf.gz.csi") from hmm_vcf_out
@@ -634,32 +743,32 @@ gt_hmm.into { gt_hmm_tsv; gt_hmm_vcf }
 
 process plot_hmm {
 
-    publishDir analysis_dir + "/hmm", mode: 'copy'
+    publishDir params.out + "/hmm", mode: 'copy'
 
     input:
         file("gt_hmm_fill.tsv") from gt_hmm_fill
-        file("script.R") from hmm_plot_script
 
     output:
         file("gt_hmm.png")
         file("gt_hmm.svg")
 
     """
-        Rscript --vanilla script.R
+        Rscript --vanilla `which plot_hmm.R` "${params.cA}" "${params.cB}"
     """
 
 }
 
 process generate_issue_plots {
 
-    publishDir analysis_dir + "/plots", mode: 'copy'
+    publishDir params.out + "/plots", mode: 'copy'
+
+    errorStrategy 'ignore'
 
     input:
         file("SM_bam_idxstats.tsv") from SM_bam_idxstats_plot
         file("fq_coverage.tsv") from fq_coverage_plot
         file("SM_coverage.tsv") from SM_coverage_plot
         file("bam_duplicates.tsv") from bam_duplicates_plot
-        file("generate_plots.R") from Channel.fromPath("generate_plots.R")
 
     output:
         file("coverage_comparison.png")
@@ -670,14 +779,14 @@ process generate_issue_plots {
         file("duplicates.svg")
 
     """
-        Rscript --vanilla generate_plots.R
+        Rscript --vanilla `which qc_plots.R`
     """
 }
 
 
 process output_tsv {
 
-    publishDir analysis_dir + "/hmm", mode: 'copy'
+    publishDir params.out + "/hmm", mode: 'copy'
 
     input:
         set file("RIL.hmm.vcf.gz"), file("RIL.hmm.vcf.gz.csi") from gt_hmm_tsv
@@ -693,7 +802,7 @@ process output_tsv {
 
 process generate_cross_object {
 
-    publishDir analysis_dir + "/cross_object", mode: 'copy'
+    publishDir params.out + "/cross_object", mode: 'copy'
 
     input:
         set file("RIL.hmm.vcf.gz"), file("RIL.hmm.vcf.gz.csi") from gt_hmm_vcf
@@ -744,8 +853,9 @@ process generate_cross_object {
                 print
             }
         ''' - >> cross_obj_geno.tsv
-
-    Rscript ${cross_object_script}
+    
+    generate_cross_object.R
+    #Rscript --vanilla `which generate_cross_object.R`
 
     """
 }
